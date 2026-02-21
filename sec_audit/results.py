@@ -11,15 +11,142 @@ Supports JSON serialization for CI/CD integration.
 
 
 # Result dataclass, ScoreCalculator, Validation schemas
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
+from typing import List, Dict, Any
+from enum import Enum
 
+
+class Status(str, Enum):
+    """Standardized check statuses."""
+    PASS = "PASS"
+    FAIL = "FAIL"
+    WARN = "WARN"
+    ERROR = "ERROR"
+
+
+class Severity(str, Enum):
+    """Standardized check severities."""
+    CRITICAL = "CRITICAL"
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+
+class Grade(str, Enum):
+    """Overall scan grades (A-F)."""
+    A = "A"  # 90-100%
+    B = "B"  # 80-89%
+    C = "C"  # 70-79%
+    D = "D"  # 60-69%
+    F = "F"  # <60%
+    
 
 @dataclass
 class CheckResult:
-    """Represents the outcome of a single security check."""
+    """
+    Represents the outcome of a single security check.
+
+    Fields:
+        id:       Unique check identifier (e.g. APP-DEBUG-001)
+        layer:    Stack layer (app, webserver, container, host)
+        name:     Human-readable check name
+        status:   PASS | FAIL | WARN | ERROR
+        severity: CRITICAL | HIGH | MEDIUM | LOW
+        details:  Human-readable explanation of the outcome
+    """
     id: str
     layer: str
     name: str
-    status: str      # "PASS" | "FAIL" | "WARN" | "ERROR"
-    severity: str    # "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
+    status: Status      # "PASS" | "FAIL" | "WARN" | "ERROR"
+    severity: Severity    # "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
     details: str
+    
+    
+@dataclass
+class ScanResult:
+    """
+    Represents the result of a full scan against a single target.
+
+    Fields:
+        target: Target URL being scanned
+        mode:   Scan mode (quick | full)
+        checks: List of CheckResult objects
+    """
+    target: str
+    mode: str
+    checks: List[CheckResult]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to JSON-serializable dict."""
+        return {
+            "target": self.target,
+            "mode": self.mode,
+            "checks": [asdict(c) for c in self.checks],
+            "summary": self.summary(),
+            "score": {
+                "percentage": self.score_percentage,
+                "grade": self.grade.value,
+                "pass_rate": f"{self.pass_rate:.1f}%"
+            }
+        }
+
+        
+    @property
+    def total_checks(self) -> int:
+        """Total number of checks executed."""
+        return len(self.checks)
+
+
+    @property
+    def pass_rate(self) -> float:
+        """Percentage of PASS checks (ERRORs excluded from scoring)."""
+        passed = sum(1 for c in self.checks if c.status == Status.PASS)
+        valid_checks = sum(1 for c in self.checks 
+                          if c.status in [Status.PASS, Status.FAIL, Status.WARN])
+        return (passed / valid_checks * 100) if valid_checks > 0 else 0.0
+    
+    
+    @property
+    def score_percentage(self) -> float:
+        """Overall score as percentage (0-100)."""
+        return round(self.pass_rate, 1)
+
+
+    @property
+    def grade(self) -> Grade:
+        """A-F grade based on pass rate."""
+        score = self.score_percentage
+        if score >= 90: return Grade.A
+        elif score >= 80: return Grade.B
+        elif score >= 70: return Grade.C
+        elif score >= 60: return Grade.D
+        else: return Grade.F
+        
+    def summary(self) -> Dict[str, Any]:
+        """Human-readable summary statistics."""
+        status_counts = {}
+        severity_counts = {}
+        for check in self.checks:
+            status_counts[check.status.value] = status_counts.get(check.status.value, 0) + 1
+            severity_counts[check.severity.value] = severity_counts.get(check.severity.value, 0) + 1
+        
+        return {
+            "total_checks": self.total_checks,
+            "grade": self.grade.value,
+            "score_percentage": self.score_percentage,
+            "status_breakdown": status_counts,
+            "severity_breakdown": severity_counts,
+            "high_risk_issues": sum(1 for c in self.checks 
+                                  if c.status != Status.PASS and c.severity == Severity.HIGH)
+        }
+        
+    def layer_summary(self) -> Dict[str, Dict[str, Any]]:
+        """Breakdown by layer (app, webserver, container, host)."""
+        layers = {}
+        for check in self.checks:
+            if check.layer not in layers:
+                layers[check.layer] = {"total": 0, "passed": 0}
+            layers[check.layer]["total"] += 1
+            if check.status == Status.PASS:
+                layers[check.layer]["passed"] += 1
+        return layers

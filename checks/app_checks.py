@@ -10,7 +10,7 @@ Web Application Layer Security Checks (6 checks)
 """
 
 
-from sec_audit.results import CheckResult
+from sec_audit.results import CheckResult, Status, Severity
 from scanners.http_scanner import HttpScanner
 from sec_audit.config import CHECKS
 
@@ -43,13 +43,13 @@ def check_debug_mode(http_scanner: HttpScanner) -> CheckResult:
             "Werkzeug Debugger",
         ]
         if any(marker in body for marker in debug_markers):
-            status = "FAIL"
+            status = Status.FAIL
             details = "Debug-style error/traceback content detected in root response."
         else:
-            status = "PASS"
+            status = Status.PASS
             details = "No obvious debug/traceback content in root response."
     except Exception as e:
-        status = "ERROR"
+        status = Status.ERROR
         details = f"HTTP error while checking debug mode: {e!r}"
 
     return CheckResult(
@@ -57,7 +57,7 @@ def check_debug_mode(http_scanner: HttpScanner) -> CheckResult:
         layer=meta["layer"],
         name=meta["name"],
         status=status,
-        severity=meta["severity"],
+        severity=Severity[meta["severity"]],
         details=details,
     )
     
@@ -79,7 +79,7 @@ def check_secure_cookies(http_scanner: HttpScanner) -> CheckResult:
         cookies = resp.cookies  # RequestsCookieJar
 
         if not cookies:
-            status = "WARN"
+            status = Status.WARN
             details = "No cookies observed on root response; cannot assess session cookie security."
         else:
             # requests cookies only expose some flags; we inspect headers for full detail
@@ -91,16 +91,16 @@ def check_secure_cookies(http_scanner: HttpScanner) -> CheckResult:
             has_httponly = "httponly" in set_cookie_combined
 
             if has_secure and has_httponly:
-                status = "PASS"
+                status = Status.PASS
                 details = "At least one cookie appears to use both Secure and HttpOnly flags."
             elif has_secure or has_httponly:
-                status = "WARN"
+                status = Status.WARN
                 details = "Cookies present but missing one of Secure/HttpOnly flags."
             else:
-                status = "FAIL"
+                status = Status.FAIL
                 details = "Cookies present but no Secure or HttpOnly flags detected in Set-Cookie."
     except Exception as e:
-        status = "ERROR"
+        status = Status.ERROR
         details = f"HTTP error while checking secure cookies: {e!r}"
 
     return CheckResult(
@@ -108,6 +108,6 @@ def check_secure_cookies(http_scanner: HttpScanner) -> CheckResult:
         layer=meta["layer"],
         name=meta["name"],
         status=status,
-        severity=meta["severity"],
+        severity=Severity[meta["severity"]],
         details=details,
     )

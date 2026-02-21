@@ -1,0 +1,49 @@
+{
+  "target": "https://vickkykruzprogramming.dev/admin/page/home",
+  "mode": "quick",
+  "checks": [
+    {
+      "id": "APP-DEBUG-001",
+      "layer": "app",
+      "name": "Debug mode disabled",
+      "status": "PASS",
+      "severity": "HIGH",
+      "details": "No obvious debug/traceback content in root response."
+    },
+    {
+      "id": "APP-COOKIE-001",
+      "layer": "app",
+      "name": "Secure session cookies",
+      "status": "WARN",
+      "severity": "HIGH",
+      "details": "No cookies observed on root response; cannot assess session cookie security."
+    },
+    {
+      "id": "WS-HSTS-001",
+      "layer": "webserver",
+      "name": "HSTS header enabled",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "details": "Strict-Transport-Security header is missing."
+    }
+  ],
+  "summary": {
+    "total_checks": 3,
+    "grade": "F",
+    "score_percentage": 33.3,
+    "status_breakdown": {
+      "PASS": 1,
+      "WARN": 1,
+      "FAIL": 1
+    },
+    "severity_breakdown": {
+      "HIGH": 3
+    },
+    "high_risk_issues": 2
+  },
+  "score": {
+    "percentage": 33.3,
+    "grade": "F",
+    "pass_rate": "33.3%"
+  }
+}

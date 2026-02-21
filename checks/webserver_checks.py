@@ -10,7 +10,7 @@ Web Server Layer Checks - Nginx/Apache (6 checks)
 """
 
 
-from sec_audit.results import CheckResult
+from sec_audit.results import CheckResult, Status, Severity
 from scanners.http_scanner import HttpScanner
 from sec_audit.config import CHECKS
 
@@ -37,7 +37,7 @@ def check_hsts_header(http_scanner: HttpScanner) -> CheckResult:
         sts = resp.headers.get("Strict-Transport-Security")
 
         if not sts:
-            status = "FAIL"
+            status = Status.FAIL
             details = "Strict-Transport-Security header is missing."
         else:
             sts_lower = sts.lower()
@@ -52,13 +52,13 @@ def check_hsts_header(http_scanner: HttpScanner) -> CheckResult:
                         pass
 
             if max_age_value is not None and max_age_value >= 31536000:
-                status = "PASS"
+                status = Status.PASS
                 details = f"HSTS present with strong max-age={max_age_value}."
             else:
-                status = "WARN"
+                status = Status.WARN
                 details = f"HSTS present but max-age appears weak or unparseable: {sts!r}"
     except Exception as e:
-        status = "ERROR"
+        status = Status.ERROR
         details = f"HTTP error while checking HSTS header: {e!r}"
 
     return CheckResult(
@@ -66,6 +66,6 @@ def check_hsts_header(http_scanner: HttpScanner) -> CheckResult:
         layer=meta["layer"],
         name=meta["name"],
         status=status,
-        severity=meta["severity"],
+        severity=Severity[meta["severity"]],
         details=details,
     )

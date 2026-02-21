@@ -12,6 +12,7 @@ Supports:
 
 
 # Uses argparse for CLI interface
+import json
 import argparse
 from types import SimpleNamespace
 
@@ -19,7 +20,7 @@ from sec_audit.config import get_layer_totals
 from scanners.http_scanner import HttpScanner
 from checks.app_checks import check_debug_mode, check_secure_cookies
 from checks.webserver_checks import check_hsts_header
-from sec_audit.results import CheckResult
+from sec_audit.results import CheckResult, ScanResult
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -153,6 +154,7 @@ def run_from_args(args: SimpleNamespace) -> None:
         print()
     except ImportError:
         print("[INFO] config.py not yet implemented (Day 2 pending)")
+    print()
         
     # ───────── REAL DAY 3 SCANNING ─────────
     http_scanner = HttpScanner(args.target)
@@ -166,6 +168,43 @@ def run_from_args(args: SimpleNamespace) -> None:
     for r in results:
         print(f"  [{r.status:5}] {r.id} - {r.name} ({r.severity})")
         print(f"        {r.details}")
+        
+    print()
+        
+     # ───────── Day 4: Wrap into ScanResult ─────────
+    scan_result = ScanResult(
+        target=args.target,
+        mode=args.mode,
+        checks=results,
+    )
+
+    # Human-readable console output
+    print("🔎 HTTP Checks (Day 3):")
+    for r in scan_result.checks:
+        print(f"  [{r.status:5}] {r.id} - {r.name} ({r.severity})")
+        print(f"        {r.details}")
+    print()
+
+    # JSON export for CI/CD or later use
+    if args.json:
+        try:
+            with open(args.json, "w", encoding="utf-8") as f:
+                json.dump(scan_result.to_dict(), f, indent=2)
+            print(f"💾 JSON results written to: {args.json}")
+        except Exception as e:
+            print(f"❌ Failed to write JSON results to {args.json}: {e!r}")
+    print()
+    
+    # ───────── Day 4: Display scoring ─────────
+    print("📊 OVERALL SCORE:")
+    print(f"  Grade: {scan_result.grade.value} ({scan_result.score_percentage}%)")
+    
+    # ✅ CORRECTED - Use summary() method
+    summary_data = scan_result.summary()
+    passed_count = summary_data['status_breakdown'].get('PASS', 0)
+    print(f"  Status: {passed_count}/{scan_result.total_checks} passed")
+    print(f"  High risk issues: {summary_data['high_risk_issues']}")
+    print()
     
     print("🚧 [PIPELINE] Scanning would execute here...")
     print("   • Initialize HTTP/Docker/SSH scanners")
