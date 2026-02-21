@@ -15,65 +15,146 @@ Supports:
 import argparse
 from types import SimpleNamespace
 
+from sec_audit.config import get_layer_totals
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Build and configure the argument parser."""
 
     parser = argparse.ArgumentParser(
         prog="sec_audit",
-        description="Security Audit Framework - Web app configuration assessment",
+        description="""
+        🏛️  SECURITY AUDIT FRAMEWORK
+        Automated Web Application Security Configuration Assessment
+                
+        Scans 24 configuration checks across 4 layers:
+        • Web App (Flask/Django): debug mode, CSRF, cookies
+        • Web Server (Nginx/Apache): HSTS, security headers, TLS
+        • Container (Docker): non-root user, resource limits
+        • Host (Linux): SSH hardening, firewall, services
+        """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-        Examples:
+        🚀 USAGE EXAMPLES:
+
+            BASIC SCAN (HTTP only):
             python sec_audit.py --target https://example.com
+
+            FULL STACK SCAN (HTTP + Docker + SSH):
             python sec_audit.py --target https://lms.example.com --mode full --output report.pdf
+
+            DEVELOPMENT / LOCAL:
             python sec_audit.py --target http://localhost:5000 --json results.json
+
+            CI/CD PIPELINE:
+            python sec_audit.py --target $APP_URL --json /tmp/audit.json --mode quick
+
+            📄 Output Formats:
+            --output report.pdf    → Professional PDF remediation report
+            --json results.json    → Structured JSON for automation
+            (stdout)               → Console summary (default)
         """
     )
     
     # Core arguments
     parser.add_argument(
-        "--target", 
+        "--target", "-t", 
         required=True,
-        help="Target URL (e.g. https://example.com)"
+        help="""
+        Target web application URL.
+        Examples: https://example.com, http://localhost:5000, https://staging.lms.internal
+        """,
+        metavar="URL"
     )
     
     parser.add_argument(
-        "--mode",
+        "--mode", "-m",
         choices=["quick", "full"],
         default="quick",
-        help="Scan mode: quick (HTTP only) or full (HTTP+Docker+SSH)"
+        help="""
+        Scan scope:
+        • quick: HTTP checks only (app + webserver layers, ~30 seconds)
+        • full:  HTTP + Docker + SSH checks (all 4 layers, ~2 minutes)
+        """,
+        metavar="MODE"
     )
     
     parser.add_argument(
-        "--output", "-o",
-        help="Path to PDF report"
+       "--output", "-o",
+        help="""
+        Path to PDF remediation report.
+        Example: --output security_audit.pdf
+        """,
+        metavar="PATH"
     )
     
     parser.add_argument(
         "--json", "-j",
-        help="Path to JSON results"
+        help="""
+        Path to JSON results (CI/CD friendly).
+        Example: --json /tmp/audit-results.json
+        """,
+        metavar="PATH"
     )
     
-    # Future arguments (commented out for Day 1)
-    # parser.add_argument("--docker-host", help="Docker daemon endpoint")
-    # parser.add_argument("--ssh-host", help="SSH target host")
-    # parser.add_argument("--ssh-key", help="SSH private key path")
+    # ==================== FUTURE ARGUMENTS (Day 3+) ====================
+    docker_group = parser.add_argument_group("Docker scanning (full mode)")
+    docker_group.add_argument(
+        "--docker-host",
+        help="Docker daemon endpoint (tcp://host:port or unix:///var/run/docker.sock)",
+        metavar="DOCKER_URL"
+    )
+    
+    ssh_group = parser.add_argument_group("SSH host scanning (full mode)") 
+    ssh_group.add_argument("--ssh-host", help="SSH target host/IP")
+    ssh_group.add_argument("--ssh-key", help="SSH private key path")
+    ssh_group.add_argument("--ssh-user", default="root", help="SSH username (default: root)")
+    
+    # ==================== DEBUG / DEV ====================
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Verbose output for debugging"
+    )
+    
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="Security Audit Framework v1.0.0 (MSc Research Prototype)",
+        help="Show version information"
+    )
     
     return parser
 
 
 def run_from_args(args: SimpleNamespace) -> None:
     """Execute scan based on parsed arguments."""
-    print(f"[SEC-AUDIT v1.0.0] Starting scan...")
-    print(f"  Target: {args.target}")
-    print(f"  Mode: {args.mode}")
-    print(f"  Output: {args.output or 'stdout'}")
-    print(f"  JSON: {args.json or 'none'}")
+    print(f"🏛️  [SEC-AUDIT v1.0.0] Starting scan...")
+    print(f"  🎯 Target: {args.target}")
+    print(f"  ⚙️  Mode: {args.mode}")
+    print(f"  📄 Output: {args.output or 'stdout'}")
+    print(f"  💾 JSON: {args.json or 'none'}")
+    
+    if args.verbose:
+        print(f"  🔧 Verbose: enabled")
     print()
     
-    print("[DRY RUN] Scanning pipeline would execute here...")
-    print("[DRY RUN] 24 security checks across 4 layers...")
+    # Day 2 Integration Test
+    try:
+        from sec_audit.config import get_layer_totals
+        totals = get_layer_totals()
+        print("📊 Check Distribution:")
+        for layer, count in totals.items():
+            print(f"  {layer:10}: {count} checks")
+        print()
+    except ImportError:
+        print("[INFO] config.py not yet implemented (Day 2 pending)")
+    
+    print("🚧 [PIPELINE] Scanning would execute here...")
+    print("   • Load checks from config.CHECKS")
+    print("   • Initialize HTTP/Docker/SSH scanners")
+    print("   • Execute layer-specific checks")
+    print("   • Generate PDF/JSON reports")
     print()
     
     print("✅ CLI working correctly! Ready for Day 2 (check definitions).")
