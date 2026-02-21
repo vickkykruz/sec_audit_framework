@@ -16,6 +16,10 @@ import argparse
 from types import SimpleNamespace
 
 from sec_audit.config import get_layer_totals
+from scanners.http_scanner import HttpScanner
+from checks.app_checks import check_debug_mode, check_secure_cookies
+from checks.webserver_checks import check_hsts_header
+from sec_audit.results import CheckResult
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -149,9 +153,21 @@ def run_from_args(args: SimpleNamespace) -> None:
         print()
     except ImportError:
         print("[INFO] config.py not yet implemented (Day 2 pending)")
+        
+    # ───────── REAL DAY 3 SCANNING ─────────
+    http_scanner = HttpScanner(args.target)
+
+    results: list[CheckResult] = []
+    results.append(check_debug_mode(http_scanner))
+    results.append(check_secure_cookies(http_scanner))
+    results.append(check_hsts_header(http_scanner))
+
+    print("🔎 HTTP Checks (Day 3):")
+    for r in results:
+        print(f"  [{r.status:5}] {r.id} - {r.name} ({r.severity})")
+        print(f"        {r.details}")
     
     print("🚧 [PIPELINE] Scanning would execute here...")
-    print("   • Load checks from config.CHECKS")
     print("   • Initialize HTTP/Docker/SSH scanners")
     print("   • Execute layer-specific checks")
     print("   • Generate PDF/JSON reports")
