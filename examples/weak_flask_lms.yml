@@ -1,0 +1,13 @@
+"""
+TEST CASE: Weak Flask LMS Deployment (Expected Score: D/F)
+
+Purpose: Baseline detection of common misconfigurations
+Use: python sec_audit.py --docker-compose examples/weak_flask_lms.yml
+
+Deliberate weaknesses:
+- DEBUG=True in Flask app
+- No secure cookie flags
+- Weak Nginx security headers
+- Root container user
+- Weak SSH config
+"""

@@ -1,0 +1,12 @@
+"""
+TEST CASE: Hardened Flask LMS Deployment (Expected Score: A/B)
+
+Purpose: Validation of security improvements
+Use: Compare against weak_flask_lms.yml results
+
+Security controls implemented:
+- DEBUG=False, secure cookies, CSRF protection
+- Strong HSTS + security headers
+- Non-root container, resource limits
+- Hardened SSH, UFW firewall
+"""

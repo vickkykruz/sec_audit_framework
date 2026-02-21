@@ -1,0 +1,27 @@
+"""
+Security Audit Framework - Python Project Metadata
+
+Modern Python project configuration using pyproject.toml standard.
+Defines package metadata, build system, and tool configurations.
+"""
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sec-audit-framework"
+version = "1.0.0"
+description = "Automated web application security configuration assessment"
+authors = [{name = "Victor Chukwuemeka Onwuegbuchulem", email = "vio0264@my.londonmet.ac.uk"}]
+license = {text = "MIT"}
+dependencies = [
+    "requests==2.31.0",
+    "docker==7.0.0",
+    "paramiko==3.4.0",
+    "PyYAML==6.0.1",
+    "reportlab==4.2.2",
+    "argparse",
+    "pytest==7.4.0"
+]
