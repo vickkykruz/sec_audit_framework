@@ -48,7 +48,7 @@ from checks.host_checks import (
     check_auto_updates,
     check_permissions,
     check_firewall,
-    check_logging,
+    check_logging
 )
 from sec_audit.results import CheckResult, ScanResult
 from reporting.pdf_generator import generate_pdf
