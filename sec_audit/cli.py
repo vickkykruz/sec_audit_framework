@@ -42,6 +42,14 @@ from checks.container_checks import (
     check_non_root_user,
     check_resource_limits
 )
+from checks.host_checks import (
+    check_ssh_hardening,
+    check_services,
+    check_auto_updates,
+    check_permissions,
+    check_firewall,
+    check_logging,
+)
 from sec_audit.results import CheckResult, ScanResult
 from reporting.pdf_generator import generate_pdf
 
@@ -178,53 +186,14 @@ def run_from_args(args: SimpleNamespace) -> None:
     except ImportError:
         print("[INFO] config.py not yet implemented (Day 2 pending)")
     print()
-        
-    # ───────── REAL DAY 3 SCANNING ─────────
+    
+    # ───────── CREATE SCANNER ─────────
     http_scanner = HttpScanner(args.target)
-
     results: list[CheckResult] = []
-    results.append(check_debug_mode(http_scanner))
-    results.append(check_secure_cookies(http_scanner))
-    results.append(check_hsts_header(http_scanner))
-
-    print("🔎 HTTP Checks (Day 3):")
-    for r in results:
-        print(f"  [{r.status:5}] {r.id} - {r.name} ({r.severity})")
-        print(f"        {r.details}")
-        
-    print()
-        
-     # ───────── Day 4: Wrap into ScanResult ─────────
-    scan_result = ScanResult(
-        target=args.target,
-        mode=args.mode,
-        checks=results,
-    )
-
-    # Human-readable console output
-    print("🔎 HTTP Checks (Day 3):")
-    for r in scan_result.checks:
-        print(f"  [{r.status:5}] {r.id} - {r.name} ({r.severity})")
-        print(f"        {r.details}")
-    print()
-
-    # JSON export for CI/CD or later use
-    if args.json:
-        try:
-            with open(args.json, "w", encoding="utf-8") as f:
-                json.dump(scan_result.to_dict(), f, indent=2)
-            print(f"💾 JSON results written to: {args.json}")
-        except Exception as e:
-            print(f"❌ Failed to write JSON results to {args.json}: {e!r}")
-    print()
     
-    
-    # WEB APP LAYER (6 checks) - HTTP-based
+    # ───────── WEB APP LAYER (6 checks) ─────────
     if args.mode in ["quick", "full"]:
-        from checks.app_checks import (
-            check_debug_mode, check_secure_cookies, check_csrf_protection,
-            check_admin_endpoints, check_rate_limiting, check_password_policy
-        )
+        print("🔎 Running Web Application checks...")
         results.extend([
             check_debug_mode(http_scanner),
             check_secure_cookies(http_scanner),
@@ -233,13 +202,10 @@ def run_from_args(args: SimpleNamespace) -> None:
             check_rate_limiting(http_scanner),
             check_password_policy(http_scanner),
         ])
-
-    # WEB SERVER LAYER (6 checks) - HTTP-based  
+    
+    # ───────── WEB SERVER LAYER (6 checks) ─────────  
     if args.mode in ["quick", "full"]:
-        from checks.webserver_checks import (
-            check_hsts_header, check_security_headers, check_tls_version,
-            check_server_tokens, check_directory_listing, check_request_limits
-        )
+        print("🔎 Running Web Server checks...")
         results.extend([
             check_hsts_header(http_scanner),
             check_security_headers(http_scanner),
@@ -248,30 +214,22 @@ def run_from_args(args: SimpleNamespace) -> None:
             check_directory_listing(http_scanner),
             check_request_limits(http_scanner),
         ])
-
-    # CONTAINER LAYER (6 checks) - Docker API (placeholder for now)
+    
+    # ───────── CONTAINER LAYER (6 checks) ─────────
     if args.mode == "full":
         print("⏳ Container checks pending Docker connection...")
-        from checks.container_checks import (
-            check_non_root_user, check_minimal_ports, check_resource_limits,
-            check_health_checks, check_image_registry, check_no_secrets
-        )
         results.extend([
-            check_non_root_user(),  # Placeholder
+            check_non_root_user(),
             check_minimal_ports(),
             check_resource_limits(),
             check_health_checks(),
             check_image_registry(),
             check_no_secrets(),
         ])
-
-    # HOST LAYER (6 checks) - SSH (placeholder for now)
+    
+    # ───────── HOST LAYER (6 checks) ─────────
     if args.mode == "full":
         print("⏳ Host checks pending SSH connection...")
-        from checks.host_checks import (
-            check_ssh_hardening, check_services, check_auto_updates,
-            check_permissions, check_firewall, check_logging
-        )
         results.extend([
             check_ssh_hardening(),
             check_services(),
@@ -281,24 +239,44 @@ def run_from_args(args: SimpleNamespace) -> None:
             check_logging(),
         ])
     
-    # ───────── Day 4: Display scoring ─────────
-    print("📊 OVERALL SCORE:")
-    print(f"  Grade: {scan_result.grade.value} ({scan_result.score_percentage}%)")
+    # ───────── CREATE SCANRESULT ─────────
+    scan_result = ScanResult(
+        target=args.target,
+        mode=args.mode,
+        checks=results,
+    )
     
-    # ✅ CORRECTED - Use summary() method
+    # ───────── DISPLAY RESULTS ─────────
+    print("🔎 ALL CHECK RESULTS:")
+    for r in scan_result.checks:
+        print(f"  [{r.status:5}] {r.id} - {r.name} ({r.severity})")
+        print(f"        {r.details}")
+    print()
+    
+    # ───────── SCORING ─────────
+    print("📊 OVERALL SCORE:")
+    print(f"  Grade: {scan_result.grade} ({scan_result.score_percentage}%)")
     summary_data = scan_result.summary()
     passed_count = summary_data['status_breakdown'].get('PASS', 0)
     print(f"  Status: {passed_count}/{scan_result.total_checks} passed")
     print(f"  High risk issues: {summary_data['high_risk_issues']}")
     print()
     
-    # PDF export
+    # ───────── JSON EXPORT ─────────
+    if args.json:
+        try:
+            with open(args.json, "w", encoding="utf-8") as f:
+                json.dump(scan_result.to_dict(), f, indent=2)
+            print(f"💾 JSON results written to: {args.json}")
+        except Exception as e:
+            print(f"❌ Failed to write JSON: {e!r}")
+    
+    # ───────── PDF EXPORT ─────────
     if args.output:
         try:
             generate_pdf(scan_result, args.output)
             print(f"📄 PDF report generated: {args.output}")
         except Exception as e:
             print(f"❌ Failed to generate PDF: {e!r}")
-    print()
     
-    print("✅ Done.")
+    print("✅ FULL 24-CHECK SCAN COMPLETE!")
