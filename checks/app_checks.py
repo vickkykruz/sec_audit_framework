@@ -111,3 +111,85 @@ def check_secure_cookies(http_scanner: HttpScanner) -> CheckResult:
         severity=Severity[meta["severity"]],
         details=details,
     )
+    
+    
+def check_csrf_protection(http_scanner: HttpScanner) -> CheckResult:
+    """APP-CSRF-001: CSRF protection enabled."""
+    meta = _meta("APP-CSRF-001")
+    try:
+        resp = http_scanner.get_root()
+        # Simple heuristic: look for CSRF token fields in forms
+        has_csrf_patterns = any(pattern in resp.text.lower() 
+                              for pattern in ["csrf", "token", "_token"])
+        status = Status.PASS if has_csrf_patterns else Status.FAIL
+        details = f"CSRF patterns {'detected' if status == Status.PASS else 'missing'}."
+    except Exception as e:
+        status = Status.ERROR
+        details = f"HTTP error: {e}"
+    
+    return CheckResult(
+        id=meta["id"], layer=meta["layer"], name=meta["name"],
+        status=status, severity=Severity[meta["severity"]], details=details
+    )
+    
+    
+def check_admin_endpoints(http_scanner: HttpScanner) -> CheckResult:
+    """APP-ADMIN-001: No exposed admin endpoints."""
+    meta = _meta("APP-ADMIN-001")
+    admin_paths = ["/admin", "/debug", "/test", "/wp-admin"]
+    exposed = []
+    
+    for path in admin_paths:
+        try:
+            resp = http_scanner.session.get(f"{http_scanner.base_url}{path}", 
+                                          timeout=3)
+            if resp.status_code == 200:
+                exposed.append(path)
+        except:
+            pass
+    
+    status = Status.FAIL if exposed else Status.PASS
+    details = f"Admin paths {'exposed: ' + ', '.join(exposed) if exposed else 'none found'}."
+    
+    return CheckResult(
+        id=meta["id"], layer=meta["layer"], name=meta["name"],
+        status=status, severity=Severity[meta["severity"]], details=details
+    )
+    
+    
+def check_rate_limiting(http_scanner: HttpScanner) -> CheckResult:
+    """APP-RATE-001: Rate limiting configured."""
+    meta = _meta("APP-RATE-001")
+    # Simple test: make 5 rapid requests, expect 429 on some
+    responses = []
+    for i in range(5):
+        try:
+            resp = http_scanner.session.get(http_scanner.base_url, timeout=2)
+            responses.append(resp.status_code)
+        except:
+            responses.append(0)
+    
+    throttled = 429 in responses
+    status = Status.PASS if throttled else Status.WARN
+    details = f"Rate limiting {'detected (429)' if throttled else 'not evident'}."
+    
+    return CheckResult(
+        id=meta["id"], layer=meta["layer"], name=meta["name"],
+        status=status, severity=Severity[meta["severity"]], details=details
+    )
+    
+    
+def check_password_policy(http_scanner: HttpScanner) -> CheckResult:
+    """APP-PASS-001: Strong password policy."""
+    meta = _meta("APP-PASS-001")
+    # Heuristic: look for password complexity hints in HTML
+    complexity_hints = ["12 characters", "uppercase", "lowercase", "special", "number"]
+    hints_found = sum(1 for hint in complexity_hints if hint in http_scanner.get_root().text.lower())
+    
+    status = Status.PASS if hints_found >= 2 else Status.WARN
+    details = f"Password hints: {hints_found}/5 complexity requirements mentioned."
+    
+    return CheckResult(
+        id=meta["id"], layer=meta["layer"], name=meta["name"],
+        status=status, severity=Severity[meta["severity"]], details=details
+    )

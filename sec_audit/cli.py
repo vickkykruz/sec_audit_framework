@@ -18,8 +18,30 @@ from types import SimpleNamespace
 
 from sec_audit.config import get_layer_totals
 from scanners.http_scanner import HttpScanner
-from checks.app_checks import check_debug_mode, check_secure_cookies
-from checks.webserver_checks import check_hsts_header
+from checks.app_checks import (
+    check_debug_mode, 
+    check_secure_cookies, 
+    check_csrf_protection, 
+    check_admin_endpoints, 
+    check_rate_limiting, 
+    check_password_policy
+)
+from checks.webserver_checks import (
+    check_hsts_header, 
+    check_directory_listing, 
+    check_request_limits, 
+    check_security_headers,
+    check_server_tokens,
+    check_tls_version
+)
+from checks.container_checks import (
+    check_health_checks,
+    check_image_registry,
+    check_minimal_ports,
+    check_no_secrets,
+    check_non_root_user,
+    check_resource_limits
+)
 from sec_audit.results import CheckResult, ScanResult
 from reporting.pdf_generator import generate_pdf
 
@@ -196,6 +218,69 @@ def run_from_args(args: SimpleNamespace) -> None:
             print(f"❌ Failed to write JSON results to {args.json}: {e!r}")
     print()
     
+    
+    # WEB APP LAYER (6 checks) - HTTP-based
+    if args.mode in ["quick", "full"]:
+        from checks.app_checks import (
+            check_debug_mode, check_secure_cookies, check_csrf_protection,
+            check_admin_endpoints, check_rate_limiting, check_password_policy
+        )
+        results.extend([
+            check_debug_mode(http_scanner),
+            check_secure_cookies(http_scanner),
+            check_csrf_protection(http_scanner),
+            check_admin_endpoints(http_scanner),
+            check_rate_limiting(http_scanner),
+            check_password_policy(http_scanner),
+        ])
+
+    # WEB SERVER LAYER (6 checks) - HTTP-based  
+    if args.mode in ["quick", "full"]:
+        from checks.webserver_checks import (
+            check_hsts_header, check_security_headers, check_tls_version,
+            check_server_tokens, check_directory_listing, check_request_limits
+        )
+        results.extend([
+            check_hsts_header(http_scanner),
+            check_security_headers(http_scanner),
+            check_tls_version(http_scanner),
+            check_server_tokens(http_scanner),
+            check_directory_listing(http_scanner),
+            check_request_limits(http_scanner),
+        ])
+
+    # CONTAINER LAYER (6 checks) - Docker API (placeholder for now)
+    if args.mode == "full":
+        print("⏳ Container checks pending Docker connection...")
+        from checks.container_checks import (
+            check_non_root_user, check_minimal_ports, check_resource_limits,
+            check_health_checks, check_image_registry, check_no_secrets
+        )
+        results.extend([
+            check_non_root_user(),  # Placeholder
+            check_minimal_ports(),
+            check_resource_limits(),
+            check_health_checks(),
+            check_image_registry(),
+            check_no_secrets(),
+        ])
+
+    # HOST LAYER (6 checks) - SSH (placeholder for now)
+    if args.mode == "full":
+        print("⏳ Host checks pending SSH connection...")
+        from checks.host_checks import (
+            check_ssh_hardening, check_services, check_auto_updates,
+            check_permissions, check_firewall, check_logging
+        )
+        results.extend([
+            check_ssh_hardening(),
+            check_services(),
+            check_auto_updates(),
+            check_permissions(),
+            check_firewall(),
+            check_logging(),
+        ])
+    
     # ───────── Day 4: Display scoring ─────────
     print("📊 OVERALL SCORE:")
     print(f"  Grade: {scan_result.grade.value} ({scan_result.score_percentage}%)")
@@ -216,4 +301,4 @@ def run_from_args(args: SimpleNamespace) -> None:
             print(f"❌ Failed to generate PDF: {e!r}")
     print()
     
-    print("✅ CLI working correctly! Ready for Day 2 (check definitions).")
+    print("✅ Done.")
