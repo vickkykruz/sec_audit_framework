@@ -256,6 +256,8 @@ def run_from_args(args: SimpleNamespace) -> None:
     # ───────── SCORING ─────────
     print("📊 OVERALL SCORE:")
     print(f"  Grade: {scan_result.grade} ({scan_result.score_percentage}%)")
+    print(f"  Attack Paths: {scan_result.attack_path_count}")
+    print(f"  Max Risk Level: {scan_result.highest_attack_risk}")
     summary_data = scan_result.summary()
     passed_count = summary_data['status_breakdown'].get('PASS', 0)
     print(f"  Status: {passed_count}/{scan_result.total_checks} passed")

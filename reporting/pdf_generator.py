@@ -130,26 +130,37 @@ def generate_pdf(scan_result: ScanResult, output_path: str) -> None:
         story.append(findings_table)
         story.append(Spacer(1, 20))
     
-    # Priority Fixes Page
-    story.append(Paragraph("⚠️ PRIORITY REMEDIATION", styles['Heading2']))
-    
-    high_risk = [c for c in scan_result.checks if c.status != "PASS" and c.severity == "HIGH"]
-    if high_risk:
-        fix_data = [["Priority", "Issue", "Recommended Fix"]]
-        for i, check in enumerate(high_risk, 1):
-            fix_data.append([f"#{i}", f"{check.id}: {check.name}", check.details[:80]])
+    # ATTACK PATHS (NEW PRIORITY SECTION)
+    story.append(Paragraph("🎯 CRITICAL ATTACK PATHS", styles['Heading2']))
+
+    paths = scan_result.attack_paths()
+    if paths:
+        path_data = [["#", "Attack Path", "Risk", "Score"]]
+        for i, path in enumerate(paths[:3], 1):  # Top 3 paths
+            path_data.append([
+                str(i),
+                path["name"][:40],
+                path["risk"],
+                f"{path['score']:.1f}"
+            ])
         
-        fix_table = Table(fix_data, colWidths=[15*mm, 80*mm, 95*mm])
-        fix_table.setStyle(TableStyle([
+        path_table = Table(path_data, colWidths=[15*mm, 90*mm, 25*mm, 25*mm])
+        path_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.red),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.lightcoral, colors.white]),
         ]))
-        story.append(fix_table)
+        story.append(path_table)
+        
+        story.append(Spacer(1, 10))
+        story.append(Paragraph(
+            f"<b>{len(paths)} attack path(s) identified.</b> Fix highest-risk paths first.",
+            styles['Normal']
+        ))
     else:
-        story.append(Paragraph("✅ No high-risk issues detected!", styles['Normal']))
+        story.append(Paragraph("✅ No multi-layer attack paths detected.", styles['Normal']))
         
     # SERVER FINGERPRINT PAGE
     story.append(PageBreak())

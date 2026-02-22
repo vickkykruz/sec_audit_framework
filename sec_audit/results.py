@@ -91,6 +91,9 @@ class ScanResult:
                 "pass_rate": f"{self.pass_rate:.1f}%"
             },
             "stack_fingerprint": self.stack_fingerprint,
+            "attack_paths": self.attack_paths(),
+            "attack_path_count": self.attack_path_count,
+            "highest_attack_risk": self.highest_attack_risk,
         }
         
         
@@ -207,7 +210,91 @@ class ScanResult:
 
         return " + ".join(dict.fromkeys(fingerprint_parts)) if fingerprint_parts else "Unknown stack"
     
-    
     @property
     def stack_fingerprint(self) -> str:
         return self.detect_stack()
+    
+    
+    def attack_paths(self) -> list[dict]:
+        """
+        Identifies realistic multi-layer attack chains.
+        
+        Matches your proposal's "layer-to-layer risk analysis" [file:310]
+        """
+        all_checks = self.checks  # Use ALL checks (PASS/WARN/FAIL/ERROR)
+        paths = []
+        
+        # PATH 1: HTTP Session Hijacking → Container Privilege Escalation
+        # Triggers if ANY web weakness + container pending
+        web_weaknesses = [
+            c for c in all_checks 
+            if c.status != Status.PASS and c.layer in ["app", "webserver"]
+        ]
+        container_checks = [c for c in all_checks if c.layer == "container"]
+        
+        if web_weaknesses and container_checks:
+            paths.append({
+                "id": "AP-001",
+                "name": "Web → Container Escape",
+                "layers": ["app", "webserver", "container"],
+                "risk": "HIGH",
+                "description": "HTTP misconfigs + unhardened containers enable privilege escalation",
+                "score": 8.5,
+                "priority_fixes": ["HSTS", "Secure cookies", "Non-root containers"]
+            })
+        
+        # PATH 2: Application Exposure → Host Compromise  
+        # Triggers if app issues + host pending
+        app_exposures = [
+            c for c in all_checks 
+            if c.status != Status.PASS and "debug" in c.id.lower()
+        ]
+        host_checks = [c for c in all_checks if c.layer == "host"]
+        
+        if app_exposures and host_checks:
+            paths.append({
+                "id": "AP-002", 
+                "name": "App → Host Root Access",
+                "layers": ["app", "host"],
+                "risk": "MEDIUM",
+                "description": "Debug exposure + unhardened host = full server compromise", 
+                "score": 7.8,
+                "priority_fixes": ["Debug mode", "SSH hardening", "File permissions"]
+            })
+        
+        # PATH 3: Server Misconfig → Internal Pivot
+        server_issues = [
+            c for c in all_checks 
+            if c.status != Status.PASS and c.layer == "webserver"
+        ]
+        
+        if len(server_issues) >= 2:  # 2+ webserver failures
+            paths.append({
+                "id": "AP-003",
+                "name": "Server → Internal Services",
+                "layers": ["webserver"],
+                "risk": "MEDIUM",
+                "description": "Multiple server misconfigs increase attack surface", 
+                "score": 6.5,
+                "priority_fixes": ["Security headers", "TLS config", "Server tokens"]
+            })
+        
+        return paths
+
+    @property
+    def attack_path_count(self) -> int:
+        """Number of identified attack paths."""
+        return len(self.attack_paths())
+
+    @property
+    def highest_attack_risk(self) -> str:
+        """Highest risk level across all paths."""
+        paths = self.attack_paths()
+        if not paths:
+            return "LOW"
+        
+        # Map risks to numeric values
+        risk_weight = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+        # Find the path with max risk weight
+        highest = max(paths, key=lambda p: risk_weight.get(p["risk"], 0))
+        return highest["risk"]
