@@ -150,6 +150,23 @@ def generate_pdf(scan_result: ScanResult, output_path: str) -> None:
         story.append(fix_table)
     else:
         story.append(Paragraph("✅ No high-risk issues detected!", styles['Normal']))
+        
+    # SERVER FINGERPRINT PAGE
+    story.append(PageBreak())
+    story.append(Paragraph("🧬 SERVER FINGERPRINT", styles['Heading2']))
+
+    story.append(Paragraph(
+        f"Detected stack: <b>{scan_result.stack_fingerprint}</b>",
+        styles['Normal']
+    ))
+
+    # Optionally, dump a bit more info:
+    story.append(Spacer(1, 10))
+    story.append(Paragraph(
+        "This fingerprint is inferred from HTTP headers, framework-specific behaviours, "
+        "and container/host findings where available.",
+        styles['Normal']
+    ))
     
     doc.build(story)
     print(f"📄 PDF report generated: {output_path}")

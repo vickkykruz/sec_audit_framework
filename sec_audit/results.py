@@ -89,7 +89,8 @@ class ScanResult:
                 "percentage": self.score_percentage,
                 "grade": self.grade.value,
                 "pass_rate": f"{self.pass_rate:.1f}%"
-            }
+            },
+            "stack_fingerprint": self.stack_fingerprint,
         }
         
         
@@ -130,6 +131,7 @@ class ScanResult:
         elif score >= 60: return Grade.D
         else: return Grade.F
         
+        
     def summary(self) -> Dict[str, Any]:
         """Human-readable summary statistics."""
         status_counts = {}
@@ -158,3 +160,54 @@ class ScanResult:
             if check.status == Status.PASS:
                 layers[check.layer]["passed"] += 1
         return layers
+    
+    
+    def detect_stack(self) -> str:
+        """
+        Best-effort detection of application stack from headers and findings.
+
+        Returns strings like:
+        - 'Flask + Nginx'
+        - 'Django + Apache'
+        - 'Unknown stack'
+        """
+        fingerprint_parts = []
+
+        # 1) Web framework heuristics (from details/names)
+        text_blobs = " ".join(
+            [c.name for c in self.checks] + [c.details for c in self.checks]
+        ).lower()
+
+        if "flask" in text_blobs:
+            fingerprint_parts.append("Flask")
+        if "django" in text_blobs:
+            fingerprint_parts.append("Django")
+        if "express" in text_blobs or "node.js" in text_blobs:
+            fingerprint_parts.append("Node.js")
+
+        # 2) Web server from headers (you can pass headers via a special check or later via http_scanner)
+        server_header = ""
+        for c in self.checks:
+            if "server:" in c.details.lower():
+                # e.g. "Server: nginx/1.24.0"
+                server_header = c.details
+                break
+
+        server_lower = server_header.lower()
+        if "nginx" in server_lower:
+            fingerprint_parts.append("Nginx")
+        if "apache" in server_lower:
+            fingerprint_parts.append("Apache")
+
+        # 3) Container / OS hints (for future Docker/SSH integration)
+        if any("docker" in c.details.lower() for c in self.checks):
+            fingerprint_parts.append("Docker")
+        if any("ubuntu" in c.details.lower() for c in self.checks):
+            fingerprint_parts.append("Ubuntu")
+
+        return " + ".join(dict.fromkeys(fingerprint_parts)) if fingerprint_parts else "Unknown stack"
+    
+    
+    @property
+    def stack_fingerprint(self) -> str:
+        return self.detect_stack()

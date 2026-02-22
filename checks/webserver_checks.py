@@ -130,14 +130,15 @@ def check_server_tokens(http_scanner: HttpScanner) -> CheckResult:
     try:
         resp = http_scanner.get_root()
         server_header = resp.headers.get("Server", "")
+        details = f"Server: {server_header}. "
         
         if "nginx" in server_header.lower() or "apache" in server_header.lower():
             version_match = any(c.isdigit() for c in server_header)
             status = Status.FAIL if version_match else Status.WARN
-            details = f"Server: {server_header} ({'version exposed' if version_match else 'version hidden'})"
+            details += f"Version {'exposed' if version_match else 'hidden'}."
         else:
             status = Status.PASS
-            details = f"No server version disclosure detected"
+            details += "No common server fingerprint detected."
             
     except Exception as e:
         status = Status.ERROR
