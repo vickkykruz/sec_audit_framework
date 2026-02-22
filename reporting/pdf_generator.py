@@ -54,7 +54,7 @@ def generate_pdf(scan_result: ScanResult, output_path: str) -> None:
     target_para = Paragraph(
         f"<b>Target:</b> {scan_result.target}<br/>"
         f"<b>Scan Mode:</b> {scan_result.mode}<br/>"
-        f"<b>Generated:</b> {scan_result.summary()['generated_at']}",
+        f"<b>Generated:</b> {scan_result.generated_at}",
         styles['Normal']
     )
     story.append(target_para)

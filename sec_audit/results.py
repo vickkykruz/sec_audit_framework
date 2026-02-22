@@ -11,9 +11,10 @@ Supports JSON serialization for CI/CD integration.
 
 
 # Result dataclass, ScoreCalculator, Validation schemas
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import List, Dict, Any
 from enum import Enum
+from datetime import datetime
 
 
 class Status(str, Enum):
@@ -75,6 +76,7 @@ class ScanResult:
     target: str
     mode: str
     checks: List[CheckResult]
+    generated_at: str = field(init=False, default=None)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict."""
@@ -89,6 +91,12 @@ class ScanResult:
                 "pass_rate": f"{self.pass_rate:.1f}%"
             }
         }
+        
+        
+    def __post_init__(self):
+        """Auto-generate timestamp if not provided."""
+        if not hasattr(self, 'generated_at') or self.generated_at is None:
+            self.generated_at = datetime.utcnow().isoformat() + "Z"
 
         
     @property

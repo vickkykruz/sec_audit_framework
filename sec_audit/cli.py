@@ -21,6 +21,7 @@ from scanners.http_scanner import HttpScanner
 from checks.app_checks import check_debug_mode, check_secure_cookies
 from checks.webserver_checks import check_hsts_header
 from sec_audit.results import CheckResult, ScanResult
+from reporting.pdf_generator import generate_pdf
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -206,10 +207,13 @@ def run_from_args(args: SimpleNamespace) -> None:
     print(f"  High risk issues: {summary_data['high_risk_issues']}")
     print()
     
-    print("🚧 [PIPELINE] Scanning would execute here...")
-    print("   • Initialize HTTP/Docker/SSH scanners")
-    print("   • Execute layer-specific checks")
-    print("   • Generate PDF/JSON reports")
+    # PDF export
+    if args.output:
+        try:
+            generate_pdf(scan_result, args.output)
+            print(f"📄 PDF report generated: {args.output}")
+        except Exception as e:
+            print(f"❌ Failed to generate PDF: {e!r}")
     print()
     
     print("✅ CLI working correctly! Ready for Day 2 (check definitions).")
