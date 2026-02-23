@@ -95,6 +95,7 @@ class ScanResult:
             "attack_paths": self.attack_paths(),
             "attack_path_count": self.attack_path_count,
             "highest_attack_risk": self.highest_attack_risk,
+            "layer_summary": self.layer_summary(),
         }
         
         
@@ -337,3 +338,35 @@ class ScanResult:
             "improved_checks": improved,
             "regressed_checks": regressed,
         }
+        
+        
+    def layer_summary(self) -> Dict[str, Dict[str, Any]]:
+        """Returns pass/fail counts per layer for heatmap."""
+        layers = {}
+        for check in self.checks:
+            layer = check.layer
+            if layer not in layers:
+                layers[layer] = {"total": 0, "passed": 0, "failed": 0, "warned": 0}
+            layers[layer]["total"] += 1
+            if check.status == Status.PASS:
+                layers[layer]["passed"] += 1
+            elif check.status in [Status.FAIL, Status.WARN]:
+                layers[layer]["failed"] += 1
+            else:  # ERROR
+                layers[layer]["warned"] += 1
+        
+        # Calculate pass rates and assign colors
+        for layer, stats in layers.items():
+            pass_rate = (stats["passed"] / stats["total"] * 100) if stats["total"] > 0 else 0
+            if pass_rate >= 80:
+                stats["color"] = "🟢"  # Green
+                stats["risk"] = "LOW"
+            elif pass_rate >= 50:
+                stats["color"] = "🟡"  # Yellow
+                stats["risk"] = "MEDIUM"
+            else:
+                stats["color"] = "🔴"  # Red
+                stats["risk"] = "HIGH"
+            stats["pass_rate"] = round(pass_rate, 1)
+        
+        return layers
