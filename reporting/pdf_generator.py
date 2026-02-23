@@ -15,6 +15,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from sec_audit.results import ScanResult
+from sec_audit.baseline import HARDENED_FLASK_BASELINE
 from typing import List
 
 
@@ -85,6 +86,18 @@ def generate_pdf(scan_result: ScanResult, output_path: str) -> None:
     
     story.append(score_table)
     story.append(Spacer(1, 20))
+    
+    drift = scan_result.compare_to_baseline(HARDENED_FLASK_BASELINE)
+    story.append(Paragraph("🔁 CONFIGURATION DRIFT (vs Hardened Flask LMS)", styles['Heading2']))
+
+    drift_text = (
+        f"<b>Grade:</b> {drift['grade_delta']}<br/>"
+        f"<b>Pass delta:</b> {drift['pass_delta']} checks vs baseline<br/>"
+        f"<b>Improved checks:</b> {', '.join(drift['improved_checks']) or 'None'}<br/>"
+        f"<b>Regressed checks:</b> {', '.join(drift['regressed_checks']) or 'None'}"
+    )
+    story.append(Paragraph(drift_text, styles['Normal']))
+    story.append(Spacer(1, 15))
     
     # Risk heatmap (simple)
     risk_status = "🟢 PASS" if scan_result.grade in ["A", "B"] else "🟡 WARNING" if scan_result.grade == "C" else "🔴 HIGH RISK"

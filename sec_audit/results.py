@@ -15,6 +15,7 @@ from dataclasses import dataclass, asdict, field
 from typing import List, Dict, Any
 from enum import Enum
 from datetime import datetime
+from sec_audit.baseline import BaselineProfile, HARDENED_FLASK_BASELINE
 
 
 class Status(str, Enum):
@@ -298,3 +299,41 @@ class ScanResult:
         # Find the path with max risk weight
         highest = max(paths, key=lambda p: risk_weight.get(p["risk"], 0))
         return highest["risk"]
+    
+    
+    def compare_to_baseline(self, baseline: BaselineProfile) -> dict:
+        """
+        Compare this ScanResult against a given baseline profile.
+
+        Returns:
+            {
+            "baseline_name": ...,
+            "grade_delta": ...,
+            "pass_delta": ...,
+            "improved_checks": [...],
+            "regressed_checks": [...],
+            }
+        """
+        current_status = {c.id: c.status for c in self.checks}
+
+        improved = []
+        regressed = []
+
+        for check_id, expected_status in baseline.check_statuses.items():
+            current = current_status.get(check_id)
+            if not current:
+                continue
+            if current == "PASS" and expected_status != "PASS":
+                improved.append(check_id)
+            elif current != "PASS" and expected_status == "PASS":
+                regressed.append(check_id)
+
+        pass_delta = self.summary()["status_breakdown"].get("PASS", 0) - baseline.expected_passes
+
+        return {
+            "baseline_name": baseline.name,
+            "grade_delta": f"{self.grade} vs {baseline.expected_grade}",
+            "pass_delta": pass_delta,
+            "improved_checks": improved,
+            "regressed_checks": regressed,
+        }

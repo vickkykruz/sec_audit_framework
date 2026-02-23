@@ -51,6 +51,7 @@ from checks.host_checks import (
     check_logging
 )
 from sec_audit.results import CheckResult, ScanResult
+from sec_audit.baseline import HARDENED_FLASK_BASELINE
 from reporting.pdf_generator import generate_pdf
 
 
@@ -262,6 +263,14 @@ def run_from_args(args: SimpleNamespace) -> None:
     passed_count = summary_data['status_breakdown'].get('PASS', 0)
     print(f"  Status: {passed_count}/{scan_result.total_checks} passed")
     print(f"  High risk issues: {summary_data['high_risk_issues']}")
+    print()
+    
+    drift = scan_result.compare_to_baseline(HARDENED_FLASK_BASELINE)
+    print("🔁 CONFIGURATION DRIFT (vs Hardened Flask LMS):")
+    print(f"  Grade: {drift['grade_delta']}")
+    print(f"  Pass delta: {drift['pass_delta']} checks vs baseline")
+    print(f"  Improved checks: {len(drift['improved_checks'])}")
+    print(f"  Regressed checks: {len(drift['regressed_checks'])}")
     print()
     
     # ───────── JSON EXPORT ─────────
