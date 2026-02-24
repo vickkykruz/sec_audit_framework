@@ -64,6 +64,7 @@ class CheckResult:
     details: str
     
     
+    
 @dataclass
 class ScanResult:
     """
