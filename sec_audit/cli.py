@@ -220,24 +220,24 @@ def run_from_args(args: SimpleNamespace) -> None:
     if args.mode == "full":
         print("⏳ Container checks pending Docker connection...")
         results.extend([
-            check_non_root_user(),
-            check_minimal_ports(),
-            check_resource_limits(),
-            check_health_checks(),
-            check_image_registry(),
-            check_no_secrets(),
+            check_non_root_user(args.docker_host),
+            check_minimal_ports(args.docker_host),
+            check_resource_limits(args.docker_host),
+            check_health_checks(args.docker_host),
+            check_image_registry(args.docker_host),
+            check_no_secrets(args.docker_host),
         ])
     
     # ───────── HOST LAYER (6 checks) ─────────
     if args.mode == "full":
         print("⏳ Host checks pending SSH connection...")
         results.extend([
-            check_ssh_hardening(),
-            check_services(),
-            check_auto_updates(),
-            check_permissions(),
-            check_firewall(),
-            check_logging(),
+            check_ssh_hardening(args.ssh_host, args.ssh_user, args.ssh_key),
+            check_firewall(args.ssh_host, args.ssh_user, args.ssh_key),
+            check_services(args.ssh_host, args.ssh_user, args.ssh_key),
+            check_auto_updates(args.ssh_host, args.ssh_user, args.ssh_key),
+            check_permissions(args.ssh_host, args.ssh_user, args.ssh_key),
+            check_logging(args.ssh_host, args.ssh_user, args.ssh_key),
         ])
     
     # ───────── CREATE SCANRESULT ─────────
