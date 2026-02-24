@@ -271,6 +271,42 @@ def generate_pdf(scan_result: ScanResult, output_path: str) -> None:
     story.extend(_section("Executive Summary", styles))
     story.append(_grade_badge(scan_result, styles))
     story.append(Spacer(1, 14))
+    
+    # ── AI NARRATIVE ──────────────────────────────────────────────────────────
+    narrative_label_style = ParagraphStyle(
+        "narrative_label", fontName="Helvetica-Bold", fontSize=8,
+        textColor=ACCENT, leading=12, spaceAfter=4,
+    )
+    narrative_body_style = ParagraphStyle(
+        "narrative_body", fontName="Helvetica", fontSize=9,
+        textColor=TEXT_DARK, leading=14, wordWrap="CJK",
+    )
+    narrative_text = scan_result.executive_narrative()
+    narrative_inner = Table(
+        [
+            [Paragraph("AI-GENERATED ASSESSMENT", narrative_label_style)],
+            [Paragraph(narrative_text, narrative_body_style)],
+        ],
+        colWidths=[PAGE_W - 2*MARGIN - 14*mm],
+    )
+    narrative_inner.setStyle(TableStyle([
+        ("LEFTPADDING",  (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING",   (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 2),
+    ]))
+    narrative_card = Table([[narrative_inner]], colWidths=[PAGE_W - 2*MARGIN])
+    narrative_card.setStyle(TableStyle([
+        ("BACKGROUND",  (0, 0), (-1, -1), colors.HexColor("#E3F2FD")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 14),
+        ("RIGHTPADDING",(0, 0), (-1, -1), 12),
+        ("TOPPADDING",  (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 10),
+        ("LINEBEFORE",  (0, 0), (0, -1), 4, ACCENT),
+        ("BOX",         (0, 0), (-1, -1), 0.5, RULE_GREY),
+    ]))
+    story.append(narrative_card)
+    story.append(Spacer(1, 14))
 
     # ── ATTACK SURFACE HEATMAP ────────────────────────────────────────────────
     story.extend(_section("Attack Surface Heatmap", styles))
@@ -452,6 +488,62 @@ def generate_pdf(scan_result: ScanResult, output_path: str) -> None:
         ))
     else:
         story.append(Paragraph("No multi-layer attack paths detected.", styles["body"]))
+        
+    # ── RECOMMENDED NEXT ACTIONS ────────────────────────────────────────────────
+    story.append(Spacer(1, 14))
+    story.extend(_section("Recommended Next Actions", styles))
+
+    recs = scan_result.remediation_recommendations()
+    if recs:
+        rec_label_style = ParagraphStyle(
+            "rec_num", fontName="Helvetica-Bold", fontSize=10,
+            textColor=colors.white, alignment=TA_CENTER, leading=13,
+        )
+        rec_text_style = ParagraphStyle(
+            "rec_text", fontName="Helvetica", fontSize=9,
+            textColor=TEXT_DARK, leading=13, wordWrap="CJK",
+        )
+        for idx, rec in enumerate(recs, 1):
+            priority_color = (
+                FAIL_RED   if idx == 1 else
+                WARN_AMBER if idx == 2 else
+                STEEL
+            )
+            badge = Table([[Paragraph(str(idx), rec_label_style)]],
+                          colWidths=[8*mm])
+            badge.setStyle(TableStyle([
+                ("BACKGROUND",   (0, 0), (-1, -1), priority_color),
+                ("TOPPADDING",   (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING",(0, 0), (-1, -1), 6),
+                ("LEFTPADDING",  (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+            ]))
+            rec_row = Table(
+                [[badge, Paragraph(rec, rec_text_style)]],
+                colWidths=[10*mm, PAGE_W - 2*MARGIN - 10*mm],
+            )
+            rec_row.setStyle(TableStyle([
+                ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING",   (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING",(0, 0), (-1, -1), 8),
+                ("LEFTPADDING",  (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("BACKGROUND",   (1, 0), (1, 0), ROW_ALT if idx % 2 == 0 else colors.white),
+                ("BOX",          (0, 0), (-1, -1), 0.5, RULE_GREY),
+                ("LINEAFTER",    (0, 0), (0, 0), 0.5, RULE_GREY),
+            ]))
+            story.append(rec_row)
+            story.append(Spacer(1, 4))
+    else:
+        no_rec_style = ParagraphStyle(
+            "no_rec", fontName="Helvetica", fontSize=9,
+            textColor=PASS_GREEN, leading=13,
+        )
+        story.append(Paragraph(
+            "No immediate remediation required. Maintain current configuration and monitor regularly.",
+            no_rec_style,
+        ))
 
     # ── SERVER FINGERPRINT ────────────────────────────────────────────────────
     story.append(Spacer(1, 14))

@@ -370,3 +370,98 @@ class ScanResult:
             stats["pass_rate"] = round(pass_rate, 1)
         
         return layers
+    
+    
+    def executive_narrative(self) -> str:
+        """
+        Short AI-style explanation of the current security posture.
+        """
+        summary = self.summary()
+        total = self.total_checks
+        passed = summary["status_breakdown"].get("PASS", 0)
+        high_risk = summary["high_risk_issues"]
+        score_now = self.score_percentage
+        layer_data = self.layer_summary()
+
+        # Identify weakest layer
+        weakest_layer = None
+        weakest_rate = 101
+        for layer, stats in layer_data.items():
+            if stats["pass_rate"] < weakest_rate:
+                weakest_rate = stats["pass_rate"]
+                weakest_layer = layer
+
+        layer_labels = {
+            "app": "application layer",
+            "webserver": "web server layer",
+            "container": "container layer",
+            "host": "host layer",
+        }
+        weakest_label = layer_labels.get(weakest_layer, "infrastructure")
+
+        # Build explanation in plain language
+        parts = []
+        parts.append(
+            f"The current security posture is {self.grade} with {passed} of {total} checks passing "
+            f"({score_now:.1f}% overall)."
+        )
+
+        if high_risk > 0:
+            parts.append(
+                f"There are {high_risk} high-severity issues, mainly concentrated in the {weakest_label}, "
+                f"which significantly increases the likelihood of successful attacks in that area."
+            )
+        else:
+            parts.append(
+                "No high-severity issues were detected, but there are still medium and low risks that should be addressed over time."
+            )
+
+        # Mention attack paths if any
+        paths = self.attack_paths()
+        if paths:
+            parts.append(
+                f"The analysis also identified {len(paths)} multi-step attack path(s), "
+                f"showing how an attacker could chain misconfigurations to escalate impact."
+            )
+        else:
+            parts.append(
+                "No multi-step attack paths were found, which reduces the chance of chained exploitation across layers."
+            )
+
+        return " ".join(parts)
+    
+    
+    def remediation_recommendations(self) -> list[str]:
+        """
+        Return a short, ordered list of key remediation recommendations.
+        """
+        recs = []
+        checks = [c for c in self.checks if c.status != "PASS"]
+
+        # Group by keywords
+        if any("HSTS" in c.id.upper() for c in checks):
+            recs.append("Enable HSTS (Strict-Transport-Security) to enforce HTTPS on all responses.")
+
+        if any("COOKIE" in c.id.upper() for c in checks):
+            recs.append("Harden session cookies (set Secure, HttpOnly and SameSite attributes).")
+
+        if any("TLS" in c.id.upper() for c in checks):
+            recs.append("Update TLS configuration to disable weak protocols/ciphers and prefer TLS 1.2+.")
+
+        if any("DEBUG" in c.id.upper() for c in checks):
+            recs.append("Disable debug mode and ensure no debugging endpoints are accessible in production.")
+
+        if any("ADMIN" in c.id.upper() for c in checks):
+            recs.append("Restrict admin endpoints behind authentication and, ideally, IP allowlists or VPN.")
+
+        if any("SSH" in c.id.upper() for c in checks):
+            recs.append("Harden SSH by disabling root login and password authentication, and using key-based access.")
+
+        if any(c.layer == "container" and c.status != "PASS" for c in checks):
+            recs.append("Review container images to ensure non-root users, minimal exposed ports, and no secrets baked into images.")
+
+        if any(c.layer == "host" and c.status != "PASS" for c in checks):
+            recs.append("Review host OS hardening: firewall rules, automatic security updates, logging and file permissions.")
+
+        # Limit to top 5 to keep it readable
+        return recs[:5]
