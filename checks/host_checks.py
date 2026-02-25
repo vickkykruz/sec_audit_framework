@@ -18,11 +18,23 @@ from sec_audit.config import CHECKS
 
 
 
-def _ssh_connect(host: str, user: str, key_path: str) -> paramiko.SSHClient:
+def _ssh_connect(host: str, user: str, key_path: str | None = None, password: str | None = None) -> paramiko.SSHClient:
     """Establish SSH connection."""
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(hostname=host, username=user, key_filename=key_path, timeout=10)
+    
+    connect_kwargs = {
+        "hostname": host,
+        "username": user,
+        "timeout": 10,
+    }
+    
+    if key_path:
+        connect_kwargs["key_filename"] = key_path
+    else:
+        connect_kwargs["password"] = password
+        
+    client.connect(**connect_kwargs)
     return client
 
 
@@ -43,56 +55,62 @@ def _run_ssh_command(client: paramiko.SSHClient, cmd: str) -> Tuple[str, int]:
 
 # ==================== 6 REAL CHECKS ====================
 def check_ssh_hardening(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
-                       ssh_key: Optional[str] = None) -> CheckResult:
+                       ssh_key: Optional[str] = None, ssh_password: Optional[str] = None) -> CheckResult:
     """HOST-SSH-001: SSH PermitRootLogin disabled."""
-    if not all([ssh_host, ssh_user, ssh_key]):
+    if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         return CheckResult("HOST-SSH-001", "SSH hardening", "Host", Severity.HIGH, Status.WARN,
-                          "SSH credentials missing (--ssh-host --ssh-user --ssh-key)")
-    
+                          "SSH credentials missing (--ssh-host --ssh-user and either --ssh-key or --ssh-password)")
+        
     try:
-        client = _ssh_connect(ssh_host, ssh_user, ssh_key)
+        client = _ssh_connect(ssh_host, ssh_user, ssh_key, ssh_password)
         output, _ = _run_ssh_command(client, "grep -i '^PermitRootLogin' /etc/ssh/sshd_config || echo 'no'")
         client.close()
         
-        if "yes" in output.lower():
+        line = output.strip()
+        if "yes" in line.lower():
             return CheckResult("HOST-SSH-001", "SSH hardening", "Host", Severity.HIGH, Status.FAIL,
-                              f"PermitRootLogin enabled: '{output}'. Fix: Set 'PermitRootLogin no'")
+                              f"PermitRootLogin enabled: '{line}'. Fix: Set 'PermitRootLogin no'")
         return CheckResult("HOST-SSH-001", "SSH hardening", "Host", Severity.HIGH, Status.PASS,
-                          f"SSH root login disabled ✓ ({output})")
+                          f"SSH root login disabled ✓ ({line})")
     except Exception as e:
         return CheckResult("HOST-SSH-001", "SSH hardening", "Host", Severity.HIGH, Status.WARN, str(e))
 
 
 def check_firewall(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
-                  ssh_key: Optional[str] = None) -> CheckResult:
+                  ssh_key: Optional[str] = None, ssh_password: Optional[str] = None) -> CheckResult:
     """HOST-FW-001: Firewall active."""
-    if not all([ssh_host, ssh_user, ssh_key]):
+    if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         return CheckResult("HOST-FW-001", "Firewall enabled", "Host", Severity.HIGH, Status.WARN,
                           "SSH credentials missing")
     
     try:
-        client = _ssh_connect(ssh_host, ssh_user, ssh_key)
+        client = _ssh_connect(ssh_host, ssh_user, ssh_key, ssh_password)
         output, _ = _run_ssh_command(client, "ufw status 2>/dev/null || iptables -L | wc -l")
         client.close()
+        text = output.lower()
         
-        if "inactive" in output.lower():
+        if "inactive" in text:
             return CheckResult("HOST-FW-001", "Firewall enabled", "Host", Severity.HIGH, Status.FAIL,
                               "ufw inactive. Run: sudo ufw enable")
-        return CheckResult("HOST-FW-001", "Firewall enabled", "Host", Severity.HIGH, Status.PASS,
+        if "status: active" in text:
+            return CheckResult("HOST-FW-001", "Firewall enabled", "Host", Severity.HIGH, Status.PASS,
                           "Firewall appears active")
+        
+        return CheckResult("HOST-FW-001", "Firewall enabled", "Host", Severity.HIGH, Status.WARN,
+                          "Could not confirm active firewall (ufw not found). Review iptables/nftables rules.")
     except Exception as e:
         return CheckResult("HOST-FW-001", "Firewall enabled", "Host", Severity.HIGH, Status.WARN, str(e))
 
 
 def check_services(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
-                  ssh_key: Optional[str] = None) -> CheckResult:
+                  ssh_key: Optional[str] = None, ssh_password: Optional[str] = None) -> CheckResult:
     """HOST-SVC-001: No unnecessary services running."""
-    if not all([ssh_host, ssh_user, ssh_key]):
+    if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         return CheckResult("HOST-SVC-001", "Minimal services", "Host", Severity.MEDIUM, Status.WARN,
                           "SSH credentials missing")
     
     try:
-        client = _ssh_connect(ssh_host, ssh_user, ssh_key)
+        client = _ssh_connect(ssh_host, ssh_user, ssh_key, ssh_password)
         output, _ = _run_ssh_command(client, "systemctl list-units --type=service --state=running | wc -l")
         client.close()
         service_count = int(output.strip())
@@ -107,20 +125,20 @@ def check_services(ssh_host: Optional[str] = None, ssh_user: Optional[str] = Non
 
 
 def check_auto_updates(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
-                      ssh_key: Optional[str] = None) -> CheckResult:
+                      ssh_key: Optional[str] = None, ssh_password: Optional[str] = None) -> CheckResult:
     """HOST-UPDATE-001: Auto-updates configured."""
-    if not all([ssh_host, ssh_user, ssh_key]):
+    if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         return CheckResult("HOST-UPDATE-001", "Auto-updates enabled", "Host", Severity.MEDIUM, Status.WARN,
                           "SSH credentials missing")
     
     try:
-        client = _ssh_connect(ssh_host, ssh_user, ssh_key)
+        client = _ssh_connect(ssh_host, ssh_user, ssh_key, ssh_password)
         output, _ = _run_ssh_command(client, "systemctl is-enabled --quiet unattended-upgrades 2>/dev/null && echo 'enabled' || echo 'disabled'")
         client.close()
         
         if "enabled" in output:
             return CheckResult("HOST-UPDATE-001", "Auto-updates enabled", "Host", Severity.MEDIUM, Status.PASS,
-                              "Unattended upgrades enabled ✓")
+                              "Unattended  upgrades enabled ✓")
         return CheckResult("HOST-UPDATE-001", "Auto-updates enabled", "Host", Severity.MEDIUM, Status.WARN,
                           "Install: apt install unattended-upgrades && systemctl enable")
     except Exception as e:
@@ -128,14 +146,14 @@ def check_auto_updates(ssh_host: Optional[str] = None, ssh_user: Optional[str] =
 
 
 def check_permissions(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
-                     ssh_key: Optional[str] = None) -> CheckResult:
+                     ssh_key: Optional[str] = None, ssh_password: Optional[str] = None) -> CheckResult:
     """HOST-PERM-001: Secure file permissions."""
-    if not all([ssh_host, ssh_user, ssh_key]):
+    if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         return CheckResult("HOST-PERM-001", "Secure permissions", "Host", Severity.MEDIUM, Status.WARN,
                           "SSH credentials missing")
     
     try:
-        client = _ssh_connect(ssh_host, ssh_user, ssh_key)
+        client = _ssh_connect(ssh_host, ssh_user, ssh_key, ssh_password)
         output, _ = _run_ssh_command(client, "find /etc/ssh -perm -o+w 2>/dev/null | wc -l")
         client.close()
         world_writable = int(output.strip())
@@ -150,14 +168,14 @@ def check_permissions(ssh_host: Optional[str] = None, ssh_user: Optional[str] = 
 
 
 def check_logging(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
-                 ssh_key: Optional[str] = None) -> CheckResult:
+                 ssh_key: Optional[str] = None, ssh_password: Optional[str] = None) -> CheckResult:
     """HOST-LOG-001: Logging configured."""
-    if not all([ssh_host, ssh_user, ssh_key]):
+    if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         return CheckResult("HOST-LOG-001", "Logging configured", "Host", Severity.LOW, Status.WARN,
                           "SSH credentials missing")
     
     try:
-        client = _ssh_connect(ssh_host, ssh_user, ssh_key)
+        client = _ssh_connect(ssh_host, ssh_user, ssh_key, ssh_password)
         output, _ = _run_ssh_command(client, "systemctl is-active rsyslog 2>/dev/null && echo 'active' || echo 'inactive'")
         client.close()
         

@@ -145,6 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
     ssh_group = parser.add_argument_group("SSH host scanning (full mode)") 
     ssh_group.add_argument("--ssh-host", help="SSH target host/IP")
     ssh_group.add_argument("--ssh-key", help="SSH private key path")
+    ssh_group.add_argument("--ssh-password", help="SSH password (alternative to --ssh-key)")
     ssh_group.add_argument("--ssh-user", default="root", help="SSH username (default: root)")
     
     # ==================== DEBUG / DEV ====================
@@ -232,12 +233,12 @@ def run_from_args(args: SimpleNamespace) -> None:
     if args.mode == "full":
         print("⏳ Host checks pending SSH connection...")
         results.extend([
-            check_ssh_hardening(args.ssh_host, args.ssh_user, args.ssh_key),
-            check_firewall(args.ssh_host, args.ssh_user, args.ssh_key),
-            check_services(args.ssh_host, args.ssh_user, args.ssh_key),
-            check_auto_updates(args.ssh_host, args.ssh_user, args.ssh_key),
-            check_permissions(args.ssh_host, args.ssh_user, args.ssh_key),
-            check_logging(args.ssh_host, args.ssh_user, args.ssh_key),
+            check_ssh_hardening(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password),
+            check_firewall(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password),
+            check_services(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password),
+            check_auto_updates(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password),
+            check_permissions(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password),
+            check_logging(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password),
         ])
     
     # ───────── CREATE SCANRESULT ─────────
