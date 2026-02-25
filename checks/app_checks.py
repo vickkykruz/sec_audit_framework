@@ -23,7 +23,7 @@ def _meta(check_id: str):
     raise KeyError(f"Unknown check id: {check_id}")
 
 
-def check_debug_mode(http_scanner: HttpScanner) -> CheckResult:
+def check_debug_mode(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
     """
     APP-DEBUG-001: Heuristic debug mode detection.
 
@@ -34,8 +34,13 @@ def check_debug_mode(http_scanner: HttpScanner) -> CheckResult:
     """
     meta = _meta("APP-DEBUG-001")
     try:
+        if verbose:
+            print("[DEBUG] APP-DEBUG-001: fetching root URL to inspect for debug markers...")
         resp = http_scanner.get_root()
         body = resp.text or ""
+        if verbose:
+            print(f"[DEBUG] APP-DEBUG-001: status={resp.status_code}, body_len={len(body)}")
+        
         debug_markers = [
             "Traceback (most recent call last)",
             "Exception Type:",
@@ -49,6 +54,8 @@ def check_debug_mode(http_scanner: HttpScanner) -> CheckResult:
             status = Status.PASS
             details = "No obvious debug/traceback content in root response."
     except Exception as e:
+        if verbose:
+            print(f"[DEBUG] APP-DEBUG-001: exception {e!r}")
         status = Status.ERROR
         details = f"HTTP error while checking debug mode: {e!r}"
 
@@ -62,7 +69,7 @@ def check_debug_mode(http_scanner: HttpScanner) -> CheckResult:
     )
     
     
-def check_secure_cookies(http_scanner: HttpScanner) -> CheckResult:
+def check_secure_cookies(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
     """
     APP-COOKIE-001: Secure session cookies.
 
@@ -75,20 +82,25 @@ def check_secure_cookies(http_scanner: HttpScanner) -> CheckResult:
     """
     meta = _meta("APP-COOKIE-001")
     try:
+        if verbose:
+            print("[DEBUG] APP-COOKIE-001: fetching root URL to inspect cookies...")
         resp = http_scanner.get_root()
         cookies = resp.cookies  # RequestsCookieJar
+        set_cookie_headers = resp.headers.get("Set-Cookie", "")
+        combined = set_cookie_headers.lower()
+        
+        if verbose:
+            print(
+                f"[DEBUG] APP-COOKIE-001: cookies={list(cookies.keys())}, "
+                f"Set-Cookie='{set_cookie_headers}'"
+            )
 
         if not cookies:
             status = Status.WARN
             details = "No cookies observed on root response; cannot assess session cookie security."
         else:
-            # requests cookies only expose some flags; we inspect headers for full detail
-            set_cookie_headers = resp.headers.get("Set-Cookie", "")
-            # In case of multiple Set-Cookie, requests concatenates; this is still usable for heuristics.
-            set_cookie_combined = set_cookie_headers.lower()
-
-            has_secure = "secure" in set_cookie_combined
-            has_httponly = "httponly" in set_cookie_combined
+            has_secure = "secure" in combined
+            has_httponly = "httponly" in combined
 
             if has_secure and has_httponly:
                 status = Status.PASS
@@ -100,6 +112,8 @@ def check_secure_cookies(http_scanner: HttpScanner) -> CheckResult:
                 status = Status.FAIL
                 details = "Cookies present but no Secure or HttpOnly flags detected in Set-Cookie."
     except Exception as e:
+        if verbose:
+            print(f"[DEBUG] APP-COOKIE-001: exception {e!r}")
         status = Status.ERROR
         details = f"HTTP error while checking secure cookies: {e!r}"
 
@@ -113,19 +127,34 @@ def check_secure_cookies(http_scanner: HttpScanner) -> CheckResult:
     )
     
     
-def check_csrf_protection(http_scanner: HttpScanner) -> CheckResult:
+def check_csrf_protection(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
     """APP-CSRF-001: CSRF protection enabled."""
     meta = _meta("APP-CSRF-001")
     try:
+        if verbose:
+            print("[DEBUG] APP-CSRF-001: fetching root URL to look for CSRF hints...")
         resp = http_scanner.get_root()
+        text = resp.text.lower()
+        
         # Simple heuristic: look for CSRF token fields in forms
-        has_csrf_patterns = any(pattern in resp.text.lower() 
-                              for pattern in ["csrf", "token", "_token"])
+        csrf_indicators = [
+            'name="csrf_token"',
+            "csrfmiddlewaretoken",
+            "x-csrftoken",
+            "csrf-token",
+        ]
+
+        has_csrf_patterns = any(ind in text for ind in csrf_indicators)
+        if verbose:
+            print(f"[DEBUG] APP-CSRF-001: csrf_indicators_found={has_csrf_patterns}")
+        
         status = Status.PASS if has_csrf_patterns else Status.FAIL
         details = f"CSRF patterns {'detected' if status == Status.PASS else 'missing'}."
     except Exception as e:
+        if verbose:
+            print(f"[DEBUG] APP-CSRF-001: exception {e!r}")
         status = Status.ERROR
-        details = f"HTTP error: {e}"
+        details = f"HTTP error while checking CSRF protection: {e}"
     
     return CheckResult(
         id=meta["id"], layer=meta["layer"], name=meta["name"],
@@ -133,20 +162,31 @@ def check_csrf_protection(http_scanner: HttpScanner) -> CheckResult:
     )
     
     
-def check_admin_endpoints(http_scanner: HttpScanner) -> CheckResult:
+def check_admin_endpoints(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
     """APP-ADMIN-001: No exposed admin endpoints."""
     meta = _meta("APP-ADMIN-001")
     admin_paths = ["/admin", "/debug", "/test", "/wp-admin"]
     exposed = []
     
     for path in admin_paths:
+        url = f"{http_scanner.base_url.rstrip('/')}{path}"
         try:
-            resp = http_scanner.session.get(f"{http_scanner.base_url}{path}", 
-                                          timeout=3)
+            if verbose:
+                print(f"[DEBUG] APP-ADMIN-001: GET {url}")
+            resp = http_scanner.session.get(url, timeout=3, allow_redirects=False)
+            if verbose:
+                print(
+                    f"[DEBUG] APP-ADMIN-001: {path} status={resp.status_code}, "
+                    f"Location={resp.headers.get('Location')!r}"
+                )
+            
+            # 200 without redirect: likely exposed            
             if resp.status_code == 200:
                 exposed.append(path)
         except:
-            pass
+            if verbose:
+                print(f"[DEBUG] APP-ADMIN-001: exception on {path}: {e!r}")
+            continue
     
     status = Status.FAIL if exposed else Status.PASS
     details = f"Admin paths {'exposed: ' + ', '.join(exposed) if exposed else 'none found'}."
@@ -157,16 +197,22 @@ def check_admin_endpoints(http_scanner: HttpScanner) -> CheckResult:
     )
     
     
-def check_rate_limiting(http_scanner: HttpScanner) -> CheckResult:
+def check_rate_limiting(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
     """APP-RATE-001: Rate limiting configured."""
     meta = _meta("APP-RATE-001")
     # Simple test: make 5 rapid requests, expect 429 on some
     responses = []
     for i in range(5):
         try:
+            if verbose:
+                print(f"[DEBUG] APP-RATE-001: request {i+1}/5 to {http_scanner.base_url}")
             resp = http_scanner.session.get(http_scanner.base_url, timeout=2)
             responses.append(resp.status_code)
-        except:
+            if verbose:
+                print(f"[DEBUG] APP-RATE-001: status={resp.status_code}")
+        except Exception as e:
+            if verbose:
+                print(f"[DEBUG] APP-RATE-001: exception on request {i+1}: {e!r}")
             responses.append(0)
     
     throttled = 429 in responses
@@ -179,15 +225,28 @@ def check_rate_limiting(http_scanner: HttpScanner) -> CheckResult:
     )
     
     
-def check_password_policy(http_scanner: HttpScanner) -> CheckResult:
+def check_password_policy(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
     """APP-PASS-001: Strong password policy."""
     meta = _meta("APP-PASS-001")
-    # Heuristic: look for password complexity hints in HTML
-    complexity_hints = ["12 characters", "uppercase", "lowercase", "special", "number"]
-    hints_found = sum(1 for hint in complexity_hints if hint in http_scanner.get_root().text.lower())
+    try:
+        # Heuristic: look for password complexity hints in HTML
+        if verbose:
+            print("[DEBUG] APP-PASS-001: fetching root URL to look for password hints...")
+        
+        text = http_scanner.get_root().text.lower()
+        complexity_hints = ["12 characters", "uppercase", "lowercase", "special", "number"]
+        hints_found = sum(1 for hint in complexity_hints if hint in text)
+        
+        if verbose:
+            print(f"[DEBUG] APP-PASS-001: hints_found={hints_found}")
     
-    status = Status.PASS if hints_found >= 2 else Status.WARN
-    details = f"Password hints: {hints_found}/5 complexity requirements mentioned."
+        status = Status.PASS if hints_found >= 2 else Status.WARN
+        details = f"Password hints: {hints_found}/5 complexity requirements mentioned."
+    except Exception as e:
+        if verbose:
+            print(f"[DEBUG] APP-PASS-001: exception {e!r}")
+        status = Status.ERROR
+        details = f"HTTP error while checking password policy hints: {e!r}"
     
     return CheckResult(
         id=meta["id"], layer=meta["layer"], name=meta["name"],

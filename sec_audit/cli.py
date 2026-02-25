@@ -55,6 +55,17 @@ from sec_audit.baseline import HARDENED_FLASK_BASELINE
 from reporting.pdf_generator import generate_pdf
 
 
+def vprint(verbose: bool, msg: str) -> None:
+    """Print debug messages only when --verbose is enabled.
+
+    Args:
+        verbose (bool): True if required for logging otherwise False for don't log
+        msg (str): Logging Message
+    """
+    if verbose:
+        print(f"[DEBUG] {msg}")
+        
+
 def build_parser() -> argparse.ArgumentParser:
     """Build and configure the argument parser."""
 
@@ -179,17 +190,21 @@ def run_from_args(args: SimpleNamespace) -> None:
     
     # Day 2 Integration Test
     try:
-        from sec_audit.config import get_layer_totals
+        vprint(args.verbose, "Importing get_layer_totals() from sec_audit.config...")
         totals = get_layer_totals()
+        vprint(args.verbose, f"Layer totals from config: {totals!r}")
+        
         print("📊 Check Distribution:")
         for layer, count in totals.items():
             print(f"  {layer:10}: {count} checks")
         print()
     except ImportError:
-        print("[INFO] config.py not yet implemented (Day 2 pending)")
+        vprint(args.verbose, f"Failed to import get_layer_totals: {e!r}")
+        print("[INFO] config.py not yet implemented.")
     print()
     
     # ───────── CREATE SCANNER ─────────
+    vprint(args.verbose, f"Creating HttpScanner for target {args.target!r}")
     http_scanner = HttpScanner(args.target)
     results: list[CheckResult] = []
     
@@ -197,12 +212,12 @@ def run_from_args(args: SimpleNamespace) -> None:
     if args.mode in ["quick", "full"]:
         print("🔎 Running Web Application checks...")
         results.extend([
-            check_debug_mode(http_scanner),
-            check_secure_cookies(http_scanner),
-            check_csrf_protection(http_scanner),
-            check_admin_endpoints(http_scanner),
-            check_rate_limiting(http_scanner),
-            check_password_policy(http_scanner),
+            check_debug_mode(http_scanner, verbose=args.verbose),
+            check_secure_cookies(http_scanner, verbose=args.verbose),
+            check_csrf_protection(http_scanner, verbose=args.verbose),
+            check_admin_endpoints(http_scanner, verbose=args.verbose),
+            check_rate_limiting(http_scanner, verbose=args.verbose),
+            check_password_policy(http_scanner, verbose=args.verbose),
         ])
     
     # ───────── WEB SERVER LAYER (6 checks) ─────────  
