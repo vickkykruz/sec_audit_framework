@@ -183,7 +183,7 @@ def check_admin_endpoints(http_scanner: HttpScanner, verbose: bool = False) -> C
             # 200 without redirect: likely exposed            
             if resp.status_code == 200:
                 exposed.append(path)
-        except:
+        except Exception as e:
             if verbose:
                 print(f"[DEBUG] APP-ADMIN-001: exception on {path}: {e!r}")
             continue

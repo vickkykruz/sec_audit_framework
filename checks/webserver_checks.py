@@ -22,7 +22,7 @@ def _meta(check_id: str):
     raise KeyError(f"Unknown check id: {check_id}")
 
 
-def check_hsts_header(http_scanner: HttpScanner) -> CheckResult:
+def check_hsts_header(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
     """
     WS-HSTS-001: HSTS header enabled.
 
@@ -33,8 +33,13 @@ def check_hsts_header(http_scanner: HttpScanner) -> CheckResult:
     """
     meta = _meta("WS-HSTS-001")
     try:
+        if verbose:
+            print("[DEBUG] WS-HSTS-001: fetching root URL to inspect HSTS...")
         resp = http_scanner.get_root()
         sts = resp.headers.get("Strict-Transport-Security")
+        
+        if verbose:
+            print(f"[DEBUG] WS-HSTS-001: Strict-Transport-Security={sts!r}")    
 
         if not sts:
             status = Status.FAIL
@@ -49,7 +54,7 @@ def check_hsts_header(http_scanner: HttpScanner) -> CheckResult:
                         _, value = part.split("=")
                         max_age_value = int(value)
                     except Exception:
-                        pass
+                        max_age_value = None
 
             if max_age_value is not None and max_age_value >= 31536000:
                 status = Status.PASS
@@ -58,6 +63,8 @@ def check_hsts_header(http_scanner: HttpScanner) -> CheckResult:
                 status = Status.WARN
                 details = f"HSTS present but max-age appears weak or unparseable: {sts!r}"
     except Exception as e:
+        if verbose:
+            print(f"[DEBUG] WS-HSTS-001: exception {e!r}")
         status = Status.ERROR
         details = f"HTTP error while checking HSTS header: {e!r}"
 
@@ -71,10 +78,12 @@ def check_hsts_header(http_scanner: HttpScanner) -> CheckResult:
     )
     
     
-def check_security_headers(http_scanner: HttpScanner) -> CheckResult:
+def check_security_headers(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
     """WS-SEC-001: Security headers present."""
     meta = _meta("WS-SEC-001")
     try:
+        if verbose:
+            print("[DEBUG] WS-SEC-001: fetching root URL to inspect security headers...")
         resp = http_scanner.get_root()
         required_headers = [
             "X-Frame-Options",
@@ -82,12 +91,18 @@ def check_security_headers(http_scanner: HttpScanner) -> CheckResult:
             "Content-Security-Policy",
             "Referrer-Policy"
         ]
-        present = sum(1 for h in required_headers if h in resp.headers)
+        present = [h for h in required_headers if h in resp.headers]
         
-        status = Status.PASS if present >= 2 else Status.FAIL
-        details = f"{present}/4 security headers present: {list(resp.headers.keys())}"
+        if verbose:
+            print(f"[DEBUG] WS-SEC-001: present={present}, all_headers={list(resp.headers.keys())}")
+            
+        count = len(present)
+        status = Status.PASS if count >= 2 else Status.FAIL
+        details = f"{count}/4 security headers present: {present}"
         
     except Exception as e:
+        if verbose:
+            print(f"[DEBUG] WS-SEC-001: exception {e!r}")
         status = Status.ERROR
         details = f"HTTP error: {e}"
     
@@ -97,24 +112,38 @@ def check_security_headers(http_scanner: HttpScanner) -> CheckResult:
     )
     
     
-def check_tls_version(http_scanner: HttpScanner) -> CheckResult:
+def check_tls_version(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
     """WS-TLS-001: TLS 1.2+ with strong ciphers."""
     meta = _meta("WS-TLS-001")
     try:
+        if verbose:
+            print("[DEBUG] WS-TLS-001: fetching root URL to inspect TLS cipher...")
         # Simple heuristic: modern sites use TLS 1.2+
         resp = http_scanner.get_root()
-        # Check if TLS 1.3 preferred cipher (heuristic)
-        modern_ciphers = ['ECDHE', 'AESGCM', 'CHACHA20']
-        cipher_info = getattr(resp.connection, 'cipher', None)
+        cipher_info = getattr(resp.raw, "connection", None)
+        # Depending on HTTP adapter this may differ; try a safe introspection:
+        cipher_desc = None
+        if cipher_info and hasattr(cipher_info, "sock") and hasattr(cipher_info.sock, "cipher"):
+            try:
+                cipher_desc = cipher_info.sock.cipher()
+            except Exception:
+                cipher_desc = None
+                
+        if verbose:
+            print(f"[DEBUG] WS-TLS-001: cipher_desc={cipher_desc!r}")
         
-        if cipher_info and any(cipher in str(cipher_info) for cipher in modern_ciphers):
+        # Check if TLS 1.3 preferred cipher (heuristic)
+        modern_markers = ['ECDHE', 'AESGCM', 'CHACHA20']
+        if cipher_desc and any(m in str(cipher_desc) for m in modern_markers):
             status = Status.PASS
-            details = f"TLS cipher looks modern: {cipher_info}"
+            details = f"TLS cipher appears modern: {cipher_desc}"
         else:
             status = Status.WARN
-            details = f"TLS details unavailable or legacy cipher detected"
+            details = f"TLS details unavailable or cipher does not look clearly modern (heuristic)."
             
     except Exception as e:
+        if verbose:
+            print(f"[DEBUG] WS-TLS-001: exception {e!r}")
         status = Status.ERROR
         details = f"TLS check failed: {e}"
     
@@ -124,15 +153,21 @@ def check_tls_version(http_scanner: HttpScanner) -> CheckResult:
     )
     
     
-def check_server_tokens(http_scanner: HttpScanner) -> CheckResult:
+def check_server_tokens(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
     """WS-SRV-001: No server version disclosure."""
     meta = _meta("WS-SRV-001")
     try:
+        if verbose:
+            print("[DEBUG] WS-SRV-001: fetching root URL to inspect Server header...")
         resp = http_scanner.get_root()
-        server_header = resp.headers.get("Server", "")
-        details = f"Server: {server_header}. "
+        server_header = resp.headers.get("Server", "") or ""
+        sh_lower = server_header.lower()
         
-        if "nginx" in server_header.lower() or "apache" in server_header.lower():
+        if verbose:
+            print(f"[DEBUG] WS-SRV-001: Server={server_header!r}")
+        
+        details = f"Server: {server_header}. "
+        if "nginx" in sh_lower or "apache" in sh_lower:
             version_match = any(c.isdigit() for c in server_header)
             status = Status.FAIL if version_match else Status.WARN
             details += f"Version {'exposed' if version_match else 'hidden'}."
@@ -141,8 +176,10 @@ def check_server_tokens(http_scanner: HttpScanner) -> CheckResult:
             details += "No common server fingerprint detected."
             
     except Exception as e:
+        if verbose:
+            print(f"[DEBUG] WS-SRV-001: exception {e!r}")
         status = Status.ERROR
-        details = f"HTTP error: {e}"
+        details = f"HTTP error while checking server banner: {e}"
     
     return CheckResult(
         id=meta["id"], layer=meta["layer"], name=meta["name"],
@@ -150,7 +187,7 @@ def check_server_tokens(http_scanner: HttpScanner) -> CheckResult:
     )
     
     
-def check_directory_listing(http_scanner: HttpScanner) -> CheckResult:
+def check_directory_listing(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
     """WS-DIR-001: Directory listing disabled."""
     meta = _meta("WS-DIR-001")
     test_paths = ["/", "/static/", "/uploads/", "/images/"]
@@ -158,16 +195,29 @@ def check_directory_listing(http_scanner: HttpScanner) -> CheckResult:
     try:
         exposed_dirs = []
         for path in test_paths:
-            resp = http_scanner.session.get(f"{http_scanner.base_url.rstrip('/')}{path}", timeout=3)
-            if resp.status_code == 200 and "index of" in resp.text.lower():
-                exposed_dirs.append(path)
+            url = f"{http_scanner.base_url.rstrip('/')}{path}"
+            
+            try:
+                if verbose:
+                    print(f"[DEBUG] WS-DIR-001: GET {url}")
+                resp = http_scanner.session.get(url, timeout=3)
+                if verbose:
+                    print(f"[DEBUG] WS-DIR-001: {path} status={resp.status_code}, body_len={len(resp.text)}")
+                if resp.status_code == 200 and "index of" in resp.text.lower():
+                    exposed_dirs.append(path)
+            except Exception as e:
+                if verbose:
+                    print(f"[DEBUG] WS-DIR-001: exception on {path}: {e!r}")
+                continue
         
         status = Status.FAIL if exposed_dirs else Status.PASS
         details = f"Directory listing {'found: ' + ', '.join(exposed_dirs) if exposed_dirs else 'disabled'}"
         
     except Exception as e:
+        if verbose:
+            print(f"[DEBUG] WS-DIR-001: exception {e!r}")
         status = Status.ERROR
-        details = f"Directory check failed: {e}"
+        details = f"Directory listing check failed: {e!r}"
     
     return CheckResult(
         id=meta["id"], layer=meta["layer"], name=meta["name"],
@@ -175,18 +225,26 @@ def check_directory_listing(http_scanner: HttpScanner) -> CheckResult:
     )
     
     
-def check_request_limits(http_scanner: HttpScanner) -> CheckResult:
+def check_request_limits(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
     """WS-LIMIT-001: Request size limits."""
     meta = _meta("WS-LIMIT-001")
     # Heuristic: large POST might trigger limits, but simple test
     try:
+        if verbose:
+            print("[DEBUG] WS-LIMIT-001: fetching root URL to collect Content-Length...")
         resp = http_scanner.get_root()
         content_length = resp.headers.get("Content-Length", "0")
+        
+        if verbose:
+            print(f"[DEBUG] WS-LIMIT-001: Content-Length={content_length!r}")
+        
         status = Status.WARN
         details = f"No direct request limit test available. Content-Length: {content_length}"
     except Exception as e:
+        if verbose:
+            print(f"[DEBUG] WS-LIMIT-001: exception {e!r}")
         status = Status.ERROR
-        details = f"Request limit check failed: {e}"
+        details = f"Request limit check failed: {e!r}"
     
     return CheckResult(
         id=meta["id"], layer=meta["layer"], name=meta["name"],

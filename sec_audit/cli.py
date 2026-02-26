@@ -209,6 +209,7 @@ def run_from_args(args: SimpleNamespace) -> None:
     results: list[CheckResult] = []
     
     # ───────── WEB APP LAYER (6 checks) ─────────
+    vprint(args.verbose, "Starting Web App Layer checks...")
     if args.mode in ["quick", "full"]:
         print("🔎 Running Web Application checks...")
         results.extend([
@@ -220,16 +221,17 @@ def run_from_args(args: SimpleNamespace) -> None:
             check_password_policy(http_scanner, verbose=args.verbose),
         ])
     
-    # ───────── WEB SERVER LAYER (6 checks) ─────────  
+    # ───────── WEB SERVER LAYER (6 checks) ───────── 
+    vprint(args.verbose, "Starting Web Server checks...") 
     if args.mode in ["quick", "full"]:
         print("🔎 Running Web Server checks...")
         results.extend([
-            check_hsts_header(http_scanner),
-            check_security_headers(http_scanner),
-            check_tls_version(http_scanner),
-            check_server_tokens(http_scanner),
-            check_directory_listing(http_scanner),
-            check_request_limits(http_scanner),
+            check_hsts_header(http_scanner, verbose=args.verbose),
+            check_security_headers(http_scanner, verbose=args.verbose),
+            check_tls_version(http_scanner, verbose=args.verbose),
+            check_server_tokens(http_scanner, verbose=args.verbose),
+            check_directory_listing(http_scanner, verbose=args.verbose),
+            check_request_limits(http_scanner, verbose=args.verbose),
         ])
     
     # ───────── CONTAINER LAYER (6 checks) ─────────
