@@ -48,7 +48,11 @@ from checks.host_checks import (
     check_auto_updates,
     check_permissions,
     check_firewall,
-    check_logging
+    check_logging,
+    check_gunicorn_user,
+    check_mysql_user,
+    check_redis_user,
+    check_uwsgi_user
 )
 from sec_audit.results import CheckResult, ScanResult
 from sec_audit.baseline import HARDENED_FLASK_BASELINE
@@ -238,24 +242,28 @@ def run_from_args(args: SimpleNamespace) -> None:
     if args.mode == "full":
         print("⏳ Container checks pending Docker connection...")
         results.extend([
-            check_non_root_user(args.docker_host),
-            check_minimal_ports(args.docker_host),
-            check_resource_limits(args.docker_host),
-            check_health_checks(args.docker_host),
-            check_image_registry(args.docker_host),
-            check_no_secrets(args.docker_host),
+            check_non_root_user(args.docker_host, verbose=args.verbose),
+            check_minimal_ports(args.docker_host, verbose=args.verbose),
+            check_resource_limits(args.docker_host, verbose=args.verbose),
+            check_health_checks(args.docker_host, verbose=args.verbose),
+            check_image_registry(args.docker_host, verbose=args.verbose),
+            check_no_secrets(args.docker_host, verbose=args.verbose),
         ])
     
     # ───────── HOST LAYER (6 checks) ─────────
     if args.mode == "full":
         print("⏳ Host checks pending SSH connection...")
         results.extend([
-            check_ssh_hardening(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password),
-            check_firewall(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password),
-            check_services(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password),
-            check_auto_updates(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password),
-            check_permissions(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password),
-            check_logging(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password),
+            check_ssh_hardening(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password, verbose=args.verbose),
+            check_firewall(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password, verbose=args.verbose),
+            check_services(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password, verbose=args.verbose),
+            check_auto_updates(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password, verbose=args.verbose),
+            check_permissions(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password, verbose=args.verbose),
+            check_logging(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password, verbose=args.verbose),
+            check_gunicorn_user(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password, verbose=args.verbose),
+            check_uwsgi_user(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password, verbose=args.verbose),
+            check_mysql_user(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password, verbose=args.verbose),
+            check_redis_user(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password, verbose=args.verbose)
         ])
     
     # ───────── CREATE SCANRESULT ─────────
