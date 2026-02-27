@@ -10,8 +10,7 @@ Host/Server OS Security Checks (6 checks)
 """
 
 
-import paramiko
-from typing import Optional, Tuple
+from typing import Optional
 
 from sec_audit.results import CheckResult, Status, Severity
 from scanners.ssh_scanner import SSHScanner
@@ -27,10 +26,10 @@ def check_ssh_hardening(ssh_host: Optional[str] = None, ssh_user: Optional[str] 
                           "SSH credentials missing (--ssh-host --ssh-user and either --ssh-key or --ssh-password)")
         
     # Use scanner instead of inline code
-    scanner = SSHScanner(ssh_host, ssh_user, ssh_key, ssh_password, verbose)
+    scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
     try:
-        client = scanner.connect(ssh_host, ssh_user, ssh_key, ssh_password)
-        output, _ = scanner.run_command(client, "grep -i '^PermitRootLogin' /etc/ssh/sshd_config || echo 'no'")
+        scanner.connect()
+        output, _ = scanner.run_command("grep -i '^PermitRootLogin' /etc/ssh/sshd_config || echo 'no'", verbose=verbose)
         scanner.close()
         
         line = output.strip()
@@ -58,10 +57,10 @@ def check_firewall(ssh_host: Optional[str] = None, ssh_user: Optional[str] = Non
                           "SSH credentials missing")
     
     # Use scanner instead of inline code
-    scanner = SSHScanner(ssh_host, ssh_user, ssh_key, ssh_password, verbose)
+    scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
     try:
-        client = scanner.connect(ssh_host, ssh_user, ssh_key, ssh_password)
-        output, _ = scanner.run_command(client, "ufw status 2>/dev/null || iptables -L | wc -l")
+        scanner.connect()
+        output, _ = scanner.run_command("ufw status 2>/dev/null || iptables -L | wc -l", verbose=verbose)
         scanner.close()
         text = output.lower()
         
@@ -93,10 +92,10 @@ def check_services(ssh_host: Optional[str] = None, ssh_user: Optional[str] = Non
                           "SSH credentials missing")
     
     # Use scanner instead of inline code
-    scanner = SSHScanner(ssh_host, ssh_user, ssh_key, ssh_password, verbose)
+    scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
     try:
-        client = scanner.connect(ssh_host, ssh_user, ssh_key, ssh_password)
-        output, _ = scanner.run_command(client, "systemctl list-units --type=service --state=running | wc -l")
+        scanner.connect()
+        output, _ = scanner.run_command("systemctl list-units --type=service --state=running | wc -l", verbose=verbose)
         scanner.close()
         service_count = int(output.strip())
         
@@ -124,10 +123,10 @@ def check_auto_updates(ssh_host: Optional[str] = None, ssh_user: Optional[str] =
                           "SSH credentials missing")
     
     # Use scanner instead of inline code
-    scanner = SSHScanner(ssh_host, ssh_user, ssh_key, ssh_password, verbose)
+    scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
     try:
-        client = scanner.connect(ssh_host, ssh_user, ssh_key, ssh_password)
-        output, _ = scanner.run_command(client, "systemctl is-enabled --quiet unattended-upgrades 2>/dev/null && echo 'enabled' || echo 'disabled'")
+        scanner.connect()
+        output, _ = scanner.run_command("systemctl is-enabled --quiet unattended-upgrades 2>/dev/null && echo 'enabled' || echo 'disabled'", verbose=verbose)
         scanner.close()
         
         if verbose:
@@ -154,10 +153,10 @@ def check_permissions(ssh_host: Optional[str] = None, ssh_user: Optional[str] = 
                           "SSH credentials missing")
     
     # Use scanner instead of inline code
-    scanner = SSHScanner(ssh_host, ssh_user, ssh_key, ssh_password, verbose)
+    scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
     try:
-        client = scanner.connect(ssh_host, ssh_user, ssh_key, ssh_password)
-        output, _ = scanner.run_command(client, "find /etc/ssh -perm -o+w 2>/dev/null | wc -l")
+        scanner.connect()
+        output, _ = scanner.run_command("find /etc/ssh -perm -o+w 2>/dev/null | wc -l", verbose=verbose)
         scanner.close()
         world_writable = int(output.strip())
         
@@ -185,10 +184,10 @@ def check_logging(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None
                           "SSH credentials missing")
     
     # Use scanner instead of inline code
-    scanner = SSHScanner(ssh_host, ssh_user, ssh_key, ssh_password, verbose)
+    scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
     try:
-        client = scanner.connect(ssh_host, ssh_user, ssh_key, ssh_password)
-        output, _ = scanner.run_command(client, "systemctl is-active rsyslog 2>/dev/null && echo 'active' || echo 'inactive'")
+        scanner.connect()
+        output, _ = scanner.run_command("systemctl is-active rsyslog 2>/dev/null && echo 'active' || echo 'inactive'", verbose=verbose)
         scanner.close()
         
         if verbose:
@@ -216,10 +215,10 @@ def check_gunicorn_user(ssh_host: Optional[str] = None, ssh_user: Optional[str] 
                           "SSH credentials missing")
     
     # Use scanner instead of inline code
-    scanner = SSHScanner(ssh_host, ssh_user, ssh_key, ssh_password, verbose)
+    scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
     try:
-        client = scanner.connect(ssh_host, ssh_user, ssh_key, ssh_password, verbose)
-        output, _ = scanner.run_command(client, "ps aux | grep '[g]unicorn' | awk '{print $1}' | head -1", verbose)
+        scanner.connect()
+        output, _ = scanner.run_command("ps aux | grep '[g]unicorn' | awk '{print $1}' | head -1", verbose=verbose)
         scanner.close()
         
         gunicorn_user = output.strip()
@@ -252,10 +251,10 @@ def check_uwsgi_user(ssh_host: Optional[str] = None, ssh_user: Optional[str] = N
                           "SSH credentials missing")
     
     # Use scanner instead of inline code
-    scanner = SSHScanner(ssh_host, ssh_user, ssh_key, ssh_password, verbose)
+    scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
     try:
-        client = scanner.connect(ssh_host, ssh_user, ssh_key, ssh_password, verbose)
-        output, _ = scanner.run_command(client, "ps aux | grep '[u]wsgi' | awk '{print $1}' | head -1", verbose)
+        scanner.connect()
+        output, _ = scanner.run_command("ps aux | grep '[u]wsgi' | awk '{print $1}' | head -1", verbose=verbose)
         scanner.close()
         
         uwsgi_user = output.strip()
@@ -288,10 +287,10 @@ def check_mysql_user(ssh_host: Optional[str] = None, ssh_user: Optional[str] = N
                           "SSH credentials missing")
     
     # Use scanner instead of inline code
-    scanner = SSHScanner(ssh_host, ssh_user, ssh_key, ssh_password, verbose)
+    scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
     try:
-        client = scanner.connect(ssh_host, ssh_user, ssh_key, ssh_password, verbose)
-        output, _ = scanner.run_command(client, "ps aux | grep '[m]ySQL' | awk '{print $1}' | head -1", verbose)
+        scanner.connect()
+        output, _ = scanner.run_command("ps aux | grep '[m]ySQL' | awk '{print $1}' | head -1", verbose=verbose)
         scanner.close()
         
         mysql_user = output.strip()
@@ -324,10 +323,10 @@ def check_redis_user(ssh_host: Optional[str] = None, ssh_user: Optional[str] = N
                           "SSH credentials missing")
     
     # Use scanner instead of inline code
-    scanner = SSHScanner(ssh_host, ssh_user, ssh_key, ssh_password, verbose)
+    scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
     try:
-        client = scanner.connect(ssh_host, ssh_user, ssh_key, ssh_password, verbose)
-        output, _ = scanner.run_command(client, "ps aux | grep '[r]edis-server' | awk '{print $1}' | head -1", verbose)
+        scanner.connect()
+        output, _ = scanner.run_command("ps aux | grep '[r]edis-server' | awk '{print $1}' | head -1", verbose=verbose)
         scanner.close()
         
         redis_user = output.strip()

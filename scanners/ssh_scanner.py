@@ -48,16 +48,18 @@ class SSHScanner:
         self.client.connect(**kwargs)
         return self.client
     
-    def run_command(self, cmd: str) -> tuple[str, int]:
+    def run_command(self, cmd: str, verbose: Optional[bool] = None) -> tuple[str, int]:
         """Run command and return (output, exit_code)."""
-        if self.verbose:
+        verbose = verbose if verbose is not None else self.verbose 
+        
+        if verbose:
             print(f"[DEBUG] SSH: '{cmd}'")
             
         stdin, stdout, stderr = self.client.exec_command(cmd)
         output = stdout.read().decode("utf-8", errors="ignore").strip()
         exit_code = stdout.channel.recv_exit_status()
         
-        if self.verbose:
+        if verbose:
             print(f"[DEBUG] SSH: {len(output)} chars, exit={exit_code}")
         return output, exit_code
     
