@@ -10,10 +10,12 @@ Uses docker-py library for:
 
 import docker
 from typing import Optional
+from pathlib import Path
 from docker.models.containers import Container
 
 
 class DockerScanner:
+    """ This is a class that handle the docker scanner"""
     def __init__(self, docker_host: Optional[str] = None, verbose: bool = False):
         self.docker_host = docker_host
         self.verbose = verbose
@@ -62,3 +64,35 @@ class DockerScanner:
             "image": container.image.tags[0] if container.image.tags else "unknown",
             "env": container.attrs.get("Config", {}).get("Env", []),
         }
+        
+        
+class DockerfileScanner:
+    """ This is a file that handle the docker file scanner"""
+    def __init__(self, path: str, verbose: bool = False):
+        """This is the method that handle the initialization"""
+        self.path = Path(path)
+        self.verbose = verbose
+        self.lines: list[str] = []
+
+    def load(self):
+        """This is the method that handles the load"""
+        if self.verbose:
+            print(f"[DEBUG] DOCKERFILE: loading from {self.path!r}")
+        text = self.path.read_text(encoding="utf-8", errors="ignore")
+        self.lines = [line.strip() for line in text.splitlines() if line.strip() and not line.strip().startswith("#")]
+
+    def has_user_instruction(self) -> bool:
+        """This is the method that check for instructions"""
+        if not self.lines:
+            self.load()
+        return any(line.upper().startswith("USER ") for line in self.lines)
+
+    def has_healthcheck(self) -> bool:
+        """The method that check for the health of the system
+
+        Returns:
+            bool: true otherwise false
+        """
+        if not self.lines:
+            self.load()
+        return any(line.upper().startswith("HEALTHCHECK ") for line in self.lines)

@@ -32,7 +32,9 @@ from checks.webserver_checks import (
     check_request_limits, 
     check_security_headers,
     check_server_tokens,
-    check_tls_version
+    check_tls_version,
+    check_nginx_csp_config,
+    check_nginx_hsts_config
 )
 from checks.container_checks import (
     check_health_checks,
@@ -40,7 +42,10 @@ from checks.container_checks import (
     check_minimal_ports,
     check_no_secrets,
     check_non_root_user,
-    check_resource_limits
+    check_resource_limits,
+    check_compose_resource_limits,
+    check_dockerfile_healthcheck,
+    check_dockerfile_user
 )
 from checks.host_checks import (
     check_ssh_hardening,
@@ -163,6 +168,10 @@ def build_parser() -> argparse.ArgumentParser:
     ssh_group.add_argument("--ssh-password", help="SSH password (alternative to --ssh-key)")
     ssh_group.add_argument("--ssh-user", default="root", help="SSH username (default: root)")
     
+    parser.add_argument("--nginx-conf", help="Path to nginx.conf for static analysis")
+    parser.add_argument("--dockerfile", help="Path to Dockerfile for static analysis")
+    parser.add_argument("--compose-file", help="Path to docker-compose.yml for static analysis")
+    
     # ==================== DEBUG / DEV ====================
     parser.add_argument(
         "--verbose", "-v",
@@ -194,27 +203,32 @@ def run_from_args(args: SimpleNamespace) -> None:
     
     # Day 2 Integration Test
     try:
-        vprint(args.verbose, "Importing get_layer_totals() from sec_audit.config...")
+        if args.verbose:
+            vprint(args.verbose, "Importing get_layer_totals() from sec_audit.config...")
         totals = get_layer_totals()
-        vprint(args.verbose, f"Layer totals from config: {totals!r}")
+        if args.verbose:
+            vprint(args.verbose, f"Layer totals from config: {totals!r}")
         
         print("📊 Check Distribution:")
         for layer, count in totals.items():
             print(f"  {layer:10}: {count} checks")
         print()
     except ImportError:
-        vprint(args.verbose, f"Failed to import get_layer_totals: {e!r}")
+        if args.verbose:
+            vprint(args.verbose, f"Failed to import get_layer_totals: {e!r}")
         print("[INFO] config.py not yet implemented.")
     print()
     
     # ───────── CREATE SCANNER ─────────
-    vprint(args.verbose, f"Creating HttpScanner for target {args.target!r}")
+    if args.verbose:
+        vprint(args.verbose, f"Creating HttpScanner for target {args.target!r}")
     http_scanner = HttpScanner(args.target)
     results: list[CheckResult] = []
     
     # ───────── WEB APP LAYER (6 checks) ─────────
-    vprint(args.verbose, "Starting Web App Layer checks...")
     if args.mode in ["quick", "full"]:
+        if args.verbose:
+            vprint(args.verbose, "Starting Web App Layer checks...")
         print("🔎 Running Web Application checks...")
         results.extend([
             check_debug_mode(http_scanner, verbose=args.verbose),
@@ -225,9 +239,10 @@ def run_from_args(args: SimpleNamespace) -> None:
             check_password_policy(http_scanner, verbose=args.verbose),
         ])
     
-    # ───────── WEB SERVER LAYER (6 checks) ───────── 
-    vprint(args.verbose, "Starting Web Server checks...") 
+    # ───────── WEB SERVER LAYER (6 checks) ─────────  
     if args.mode in ["quick", "full"]:
+        if args.verbose:
+            vprint(args.verbose, "Starting Web Server checks...")
         print("🔎 Running Web Server checks...")
         results.extend([
             check_hsts_header(http_scanner, verbose=args.verbose),
@@ -240,6 +255,8 @@ def run_from_args(args: SimpleNamespace) -> None:
     
     # ───────── CONTAINER LAYER (6 checks) ─────────
     if args.mode == "full":
+        if args.verbose:
+            vprint(args.verbose, "Starting Container checks checks...")
         print("⏳ Container checks pending Docker connection...")
         results.extend([
             check_non_root_user(args.docker_host, verbose=args.verbose),
@@ -252,6 +269,8 @@ def run_from_args(args: SimpleNamespace) -> None:
     
     # ───────── HOST LAYER (6 checks) ─────────
     if args.mode == "full":
+        if args.verbose:
+            vprint(args.verbose, "Starting HOST checks checks...")
         print("⏳ Host checks pending SSH connection...")
         results.extend([
             check_ssh_hardening(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password, verbose=args.verbose),
@@ -265,20 +284,36 @@ def run_from_args(args: SimpleNamespace) -> None:
             check_mysql_user(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password, verbose=args.verbose),
             check_redis_user(args.ssh_host, args.ssh_user, args.ssh_key, args.ssh_password, verbose=args.verbose)
         ])
+        
+    #  ───────── ADDITION CHECKS ─────────
+    # Webserver layer extra config check
+    if args.nginx_conf:
+        if args.verbose:
+            vprint(args.verbose, "Starting Webserver layer extra config check...")
+        results.append(check_nginx_hsts_config(args.nginx_conf, verbose=args.verbose))
+        
+    # Container layer extra config checks
+    if args.dockerfile:
+        if args.verbose:
+            vprint(args.verbose, "Starting Container layer extra config checks...")
+        results.append(check_dockerfile_user(args.dockerfile, verbose=args.verbose))
+        results.append(check_dockerfile_healthcheck(args.dockerfile, verbose=args.verbose))
+        
+    if args.compose_file:
+        if args.verbose:
+            vprint(args.verbose, "Starting compose_file config checks...")
+        results.append(check_compose_resource_limits(args.compose_file, verbose=args.verbose))
+
     
     # ───────── CREATE SCANRESULT ─────────
-    scan_result = ScanResult(
-        target=args.target,
-        mode=args.mode,
-        checks=results,
-    )
+    scan_result = ScanResult( target=args.target, mode=args.mode, checks=results)
     
-    # ───────── DISPLAY RESULTS ─────────
-    print("🔎 ALL CHECK RESULTS:")
-    for r in scan_result.checks:
-        print(f"  [{r.status:5}] {r.id} - {r.name} ({r.severity})")
-        print(f"        {r.details}")
-    print()
+    # # ───────── DISPLAY RESULTS ─────────
+    # print("🔎 ALL CHECK RESULTS:")
+    # for r in scan_result.checks:
+    #     print(f"  [{r.status:5}] {r.id} - {r.name} ({r.severity})")
+    #     print(f"        {r.details}")
+    # print()
     
     # ───────── SCORING ─────────
     print("📊 OVERALL SCORE:")

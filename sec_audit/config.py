@@ -119,57 +119,97 @@ CHECKS: List[Dict[str, str]] = [
         "description": "Verifies client_max_body_size and request limits are configured.",
         "recommendation": "Set client_max_body_size 1m; in Nginx location blocks."
     },
+    {
+        "id": "WS-CONF-HSTS",
+        "layer": "webserver",
+        "name": "HSTS configured in nginx.conf",
+        "severity": "MEDIUM",
+        "description": "Checks nginx.conf for a Strict-Transport-Security header configuration.",
+        "recommendation": "Add 'add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains; preload\" always;' to your HTTPS server block."
+    },
+    {
+        "id": "WS-CONF-CSP",
+        "layer": "webserver",
+        "name": "CSP configured in nginx.conf",
+        "severity": "MEDIUM",
+        "description": "Checks nginx.conf for a Content-Security-Policy header.",
+        "recommendation": "Define a CSP header in nginx.conf to restrict allowed sources of scripts, styles, and other resources."
+    },
 
     # ═══════════════════════════════════════════════════════════════════════════════
     # CONTAINER LAYER (6 checks) - Docker runtime security
     # ═══════════════════════════════════════════════════════════════════════════════
     {
         "id": "CONT-USER-001",
-        "layer": "container",
+        "layer": "container", 
         "name": "Non-root container user",
         "severity": "HIGH",
-        "description": "Verifies containers run as non-root user (USER directive in Dockerfile).",
-        "recommendation": "Add 'USER 1000:1000' to Dockerfile. Never run as root."
+        "description": "Inspects running container Config.User field via docker-py. FAILs if empty, '0', or 'root'.",
+        "recommendation": "Add 'USER 1000' (or non-root UID) to Dockerfile. Avoid running containers as root."
     },
     {
         "id": "CONT-PORT-001",
         "layer": "container",
-        "name": "Minimal ports exposed",
+        "name": "Minimal exposed ports", 
         "severity": "MEDIUM",
-        "description": "Counts exposed ports - flags >3 ports or privileged ports (<1024).",
-        "recommendation": "Expose only necessary ports. Use high-numbered (>1024) ports."
+        "description": "Counts HostConfig.PortBindings in running container. PASS if ≤2 ports, WARN if more.",
+        "recommendation": "Minimize published host ports. Use internal container networking where possible."
+    },
+    {
+        "id": "CONT-HEALTH-001",
+        "layer": "container",
+        "name": "Healthcheck configured",
+        "severity": "MEDIUM",
+        "description": "Checks Config.Healthcheck.Test in running container. WARN if missing.",
+        "recommendation": "Add HEALTHCHECK instruction to Dockerfile (e.g., 'HEALTHCHECK CMD curl -f http://localhost/')."
     },
     {
         "id": "CONT-RES-001",
         "layer": "container",
         "name": "Resource limits configured",
         "severity": "MEDIUM",
-        "description": "Checks CPU/memory limits in docker-compose.yml or docker run.",
-        "recommendation": "Set deploy.resources.limits in docker-compose.yml."
-    },
-    {
-        "id": "CONT-HEALTH-001",
-        "layer": "container",
-        "name": "Health checks configured",
-        "severity": "LOW",
-        "description": "Verifies healthcheck configured in Dockerfile/docker-compose.",
-        "recommendation": "Add HEALTHCHECK CMD in Dockerfile with curl/readiness endpoint."
+        "description": "Inspects HostConfig.Memory and CpuQuota/NanoCpus. PASS if any limit is set.",
+        "recommendation": "Set deploy.resources.limits in docker-compose.yml or use docker run --memory --cpus."
     },
     {
         "id": "CONT-REG-001",
         "layer": "container",
         "name": "Trusted image registry",
         "severity": "MEDIUM",
-        "description": "Flags Docker Hub anonymous pulls or untrusted registries.",
-        "recommendation": "Use official images or verified private registry."
+        "description": "Checks container image tag against trusted markers (official Docker Hub images, nginx/python/etc.).",
+        "recommendation": "Use official images from docker.io/library/ or verified private registries."
     },
     {
         "id": "CONT-SEC-001",
         "layer": "container",
-        "name": "No hardcoded secrets",
-        "severity": "CRITICAL",
-        "description": "Scans docker-compose.yml for plaintext secrets/passwords/API keys.",
-        "recommendation": "Use Docker secrets or environment variables from secure vault."
+        "name": "No secrets in environment",
+        "severity": "HIGH",
+        "description": "Scans Config.Env for variables with names containing 'password', 'secret', 'key', 'token', 'api_key'.",
+        "recommendation": "Move secrets to Docker secrets, environment files (.env), or a secrets manager."
+    },
+    {
+        "id": "CONT-CONF-USER",
+        "layer": "container",
+        "name": "Dockerfile USER instruction",
+        "severity": "HIGH",
+        "description": "Statically parses Dockerfile for USER instruction presence.",
+        "recommendation": "Add 'USER 1000' (or non-root UID:GID) near end of Dockerfile."
+    },
+    {
+        "id": "CONT-CONF-HEALTH",
+        "layer": "container",
+        "name": "Dockerfile HEALTHCHECK",
+        "severity": "MEDIUM",
+        "description": "Statically parses Dockerfile for HEALTHCHECK instruction presence.",
+        "recommendation": "Add 'HEALTHCHECK CMD curl -f http://localhost/health || exit 1' to Dockerfile."
+    },
+    {
+        "id": "CONT-COMP-RES",
+        "layer": "container",
+        "name": "Compose resource limits",
+        "severity": "MEDIUM",
+        "description": "Parses docker-compose.yml services for deploy.resources.limits presence.",
+        "recommendation": "Add deploy.resources.limits.cpu: 0.5 and deploy.resources.limits.memory: 256M to services."
     },
 
     # ═══════════════════════════════════════════════════════════════════════════════
@@ -223,6 +263,9 @@ CHECKS: List[Dict[str, str]] = [
         "description": "Checks syslog/journald configuration and log rotation.",
         "recommendation": "Configure rsyslog or systemd-journald with logrotate."
     }
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # HOST LAYER (6 checks) - Linux server hardening
+    # ═══════════════════════════════════════════════════════════════════════════════
 ]
 
 
