@@ -218,51 +218,83 @@ CHECKS: List[Dict[str, str]] = [
     {
         "id": "HOST-SSH-001",
         "layer": "host",
-        "name": "SSH hardened configuration",
+        "name": "SSH hardening",
         "severity": "HIGH",
-        "description": "Verifies PermitRootLogin no, key auth only, no weak ciphers/protocols.",
-        "recommendation": "Configure /etc/ssh/sshd_config: PermitRootLogin no, PasswordAuthentication no."
-    },
-    {
-        "id": "HOST-SVC-001",
-        "layer": "host",
-        "name": "No unnecessary services",
-        "severity": "MEDIUM",
-        "description": "Checks for common unnecessary services (telnet, ftp, mysql, etc.).",
-        "recommendation": "Disable unused services: systemctl disable <service>."
-    },
-    {
-        "id": "HOST-UPDATE-001",
-        "layer": "host",
-        "name": "Automatic security updates",
-        "severity": "MEDIUM",
-        "description": "Verifies unattended-upgrades or similar auto-update mechanism.",
-        "recommendation": "Install and configure unattended-upgrades on Ubuntu/Debian."
-    },
-    {
-        "id": "HOST-PERM-001",
-        "layer": "host",
-        "name": "Correct file permissions",
-        "severity": "MEDIUM",
-        "description": "Checks web root (755), config files (640), SSH keys (600).",
-        "recommendation": "chmod 755 /var/www/html, chmod 640 /etc/nginx/sites-available/*."
+        "description": "Checks /etc/ssh/sshd_config for PermitRootLogin and fails if root login is enabled.",
+        "recommendation": "Set 'PermitRootLogin no' in sshd_config and restart the SSH service."
     },
     {
         "id": "HOST-FW-001",
         "layer": "host",
-        "name": "Firewall configured",
+        "name": "Firewall enabled",
         "severity": "HIGH",
-        "description": "Verifies ufw/iptables/firewalld allowing only necessary ports.",
-        "recommendation": "ufw enable; ufw allow 22,80,443; ufw deny 1024:65535."
+        "description": "Uses ufw status or iptables output to infer whether a host firewall is active.",
+        "recommendation": "Enable and configure a host firewall (e.g. ufw enable, or nftables/iptables rules)."
+    },
+    {
+        "id": "HOST-SVC-001",
+        "layer": "host",
+        "name": "Minimal services running",
+        "severity": "MEDIUM",
+        "description": "Counts running systemd services and warns if the number is unusually high.",
+        "recommendation": "Review running services with systemctl and disable those not required for the web stack."
+    },
+    {
+        "id": "HOST-UPDATE-001",
+        "layer": "host",
+        "name": "Automatic updates configured",
+        "severity": "MEDIUM",
+        "description": "Checks if unattended-upgrades is enabled to install security updates automatically.",
+        "recommendation": "Install and enable unattended-upgrades (or equivalent) for regular security patching."
+    },
+    {
+        "id": "HOST-PERM-001",
+        "layer": "host",
+        "name": "Secure SSH file permissions",
+        "severity": "MEDIUM",
+        "description": "Searches /etc/ssh for world-writable files, which may indicate misconfigured permissions.",
+        "recommendation": "Tighten permissions in /etc/ssh so that only root can modify SSH configuration files."
     },
     {
         "id": "HOST-LOG-001",
         "layer": "host",
-        "name": "Logging and monitoring",
+        "name": "Logging service active",
         "severity": "LOW",
-        "description": "Checks syslog/journald configuration and log rotation.",
-        "recommendation": "Configure rsyslog or systemd-journald with logrotate."
-    }
+        "description": "Checks whether rsyslog (or equivalent) logging service is active on the host.",
+        "recommendation": "Ensure a system logging service is installed and enabled to retain audit and error logs."
+    },
+    {
+        "id": "HOST-SVC-GUNICORN",
+        "layer": "host",
+        "name": "Gunicorn runs as non-root",
+        "severity": "HIGH",
+        "description": "Inspects Gunicorn processes and fails if they are running as root instead of a non-privileged user.",
+        "recommendation": "Run Gunicorn under a dedicated non-root account via systemd or a process manager."
+    },
+    {
+        "id": "HOST-SVC-UWSGI",
+        "layer": "host",
+        "name": "uWSGI runs as non-root",
+        "severity": "HIGH",
+        "description": "Inspects uWSGI processes and fails if they run as root instead of a non-privileged user.",
+        "recommendation": "Run uWSGI under a non-root service account in its service configuration."
+    },
+    {
+        "id": "HOST-SVC-MYSQL",
+        "layer": "host",
+        "name": "MySQL runs as non-root",
+        "severity": "HIGH",
+        "description": "Checks MySQL processes and fails if they run as root instead of the dedicated mysql user.",
+        "recommendation": "Ensure the MySQL daemon runs under the 'mysql' user account and not as root."
+    },
+    {
+        "id": "HOST-SVC-REDIS",
+        "layer": "host",
+        "name": "Redis runs as non-root",
+        "severity": "HIGH",
+        "description": "Checks Redis processes and fails if they run as root instead of the dedicated redis user.",
+        "recommendation": "Run Redis as the 'redis' user (or another non-root user) in the service configuration."
+    },
     # ═══════════════════════════════════════════════════════════════════════════════
     # HOST LAYER (6 checks) - Linux server hardening
     # ═══════════════════════════════════════════════════════════════════════════════

@@ -14,16 +14,28 @@ from typing import Optional
 
 from sec_audit.results import CheckResult, Status, Severity
 from scanners.ssh_scanner import SSHScanner
+from sec_audit.config import CHECKS
+
+
+def _meta(check_id: str):
+    for c in CHECKS:
+        if c["id"] == check_id:
+            return c
+    raise KeyError(f"Unknown check id: {check_id}")
+
 
 # ==================== 6 REAL CHECKS ====================
 def check_ssh_hardening(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
                        ssh_key: Optional[str] = None, ssh_password: Optional[str] = None, verbose: bool = False) -> CheckResult:
     """HOST-SSH-001: SSH PermitRootLogin disabled."""
+    meta = _meta("HOST-SSH-001")
+    
     if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         if verbose:
             print("[DEBUG] HOST-SSH-001: missing SSH params")
-        return CheckResult("HOST-SSH-001", "SSH hardening", "Host", Severity.HIGH, Status.WARN,
-                          "SSH credentials missing (--ssh-host --ssh-user and either --ssh-key or --ssh-password)")
+        status = Status.WARN
+        details = "SSH credentials missing (--ssh-host --ssh-user and either --ssh-key or --ssh-password)"
+
         
     # Use scanner instead of inline code
     scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
@@ -37,24 +49,34 @@ def check_ssh_hardening(ssh_host: Optional[str] = None, ssh_user: Optional[str] 
             print(f"[DEBUG] HOST-SSH-001: PermitRootLogin='{line}'")
             
         if "yes" in line.lower():
-            return CheckResult("HOST-SSH-001", "SSH hardening", "Host", Severity.HIGH, Status.FAIL,
-                              f"PermitRootLogin enabled: '{line}'. Fix: Set 'PermitRootLogin no'")
-        return CheckResult("HOST-SSH-001", "SSH hardening", "Host", Severity.HIGH, Status.PASS,
-                          f"SSH root login disabled ✓ ({line})")
+            status = Status.FAIL
+            details = f"PermitRootLogin enabled: '{line}'. Fix: Set 'PermitRootLogin no'"
+
+        status = Status.PASS
+        details = f"SSH root login disabled ✓ ({line})"
+
     except Exception as e:
         if verbose:
             print(f"[DEBUG] HOST-SSH-001: error {e}")
-        return CheckResult("HOST-SSH-001", "SSH hardening", "Host", Severity.HIGH, Status.WARN, str(e))
+        status = Status.WARN
+        details = str(e)
+    
+    return CheckResult(
+        id=meta["id"], layer=meta["layer"], name=meta["name"],
+        status=status, severity=Severity[meta["severity"]], details=details
+    )
 
 
 def check_firewall(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
                   ssh_key: Optional[str] = None, ssh_password: Optional[str] = None, verbose: bool = False) -> CheckResult:
     """HOST-FW-001: Firewall active."""
+    meta = _meta("HOST-FW-001")
+     
     if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         if verbose:
             print("[DEBUG] HOST-FW-001: missing SSH params")
-        return CheckResult("HOST-FW-001", "Firewall enabled", "Host", Severity.HIGH, Status.WARN,
-                          "SSH credentials missing")
+        status = Status.WARN
+        details = "SSH credentials missing"
     
     # Use scanner instead of inline code
     scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
@@ -68,28 +90,39 @@ def check_firewall(ssh_host: Optional[str] = None, ssh_user: Optional[str] = Non
             print(f"[DEBUG] HOST-FW-001: firewall output='{text[:50]}...'")
         
         if "inactive" in text:
-            return CheckResult("HOST-FW-001", "Firewall enabled", "Host", Severity.HIGH, Status.FAIL,
-                              "ufw inactive. Run: sudo ufw enable")
+            status = Status.FAIL
+            details = "ufw inactive. Run: sudo ufw enable"
+
         if "status: active" in text:
-            return CheckResult("HOST-FW-001", "Firewall enabled", "Host", Severity.HIGH, Status.PASS,
-                          "Firewall appears active")
+            status = Status.PASS
+            details = "Firewall appears active"
         
-        return CheckResult("HOST-FW-001", "Firewall enabled", "Host", Severity.HIGH, Status.WARN,
-                          "Could not confirm active firewall (ufw not found). Review iptables/nftables rules.")
+        status = Status.WARN
+        details = "Could not confirm active firewall (ufw not found). Review iptables/nftables rules."
+
     except Exception as e:
         if verbose:
             print(f"[DEBUG] HOST-FW-001: error {e}")
-        return CheckResult("HOST-FW-001", "Firewall enabled", "Host", Severity.HIGH, Status.WARN, str(e))
+        status = Status.WARN
+        details = str(e)
+
+    return CheckResult(
+        id=meta["id"], layer=meta["layer"], name=meta["name"],
+        status=status, severity=Severity[meta["severity"]], details=details
+    )    
 
 
 def check_services(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
                   ssh_key: Optional[str] = None, ssh_password: Optional[str] = None, verbose: bool = False) -> CheckResult:
     """HOST-SVC-001: No unnecessary services running."""
+    meta = _meta("HOST-SVC-001")
+    
     if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         if verbose:
             print("[DEBUG] HOST-SVC-001: missing SSH params")
-        return CheckResult("HOST-SVC-001", "Minimal services", "Host", Severity.MEDIUM, Status.WARN,
-                          "SSH credentials missing")
+        status = Status.WARN
+        details = "SSH credentials missing"
+        
     
     # Use scanner instead of inline code
     scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
@@ -103,24 +136,34 @@ def check_services(ssh_host: Optional[str] = None, ssh_user: Optional[str] = Non
             print(f"[DEBUG] HOST-SVC-001: {service_count} services running")
         
         if service_count > 20:
-            return CheckResult("HOST-SVC-001", "Minimal services", "Host", Severity.MEDIUM, Status.WARN,
-                              f"{service_count} services running. Review: systemctl list-units")
-        return CheckResult("HOST-SVC-001", "Minimal services", "Host", Severity.MEDIUM, Status.PASS,
-                          f"{service_count} services: acceptable")
+            status = Status.WARN
+            details = f"{service_count} services running. Review: systemctl list-units"
+
+        status = Status.PASS
+        details = f"{service_count} services: acceptable"
+
     except Exception as e:
         if verbose:
             print(f"[DEBUG] HOST-SVC-001: error {e}")
-        return CheckResult("HOST-SVC-001", "Minimal services", "Host", Severity.MEDIUM, Status.WARN, str(e))
+        status = Status.WARN
+        details = str(e)
+        
+    return CheckResult(
+        id=meta["id"], layer=meta["layer"], name=meta["name"],
+        status=status, severity=Severity[meta["severity"]], details=details
+    )
 
 
 def check_auto_updates(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
                       ssh_key: Optional[str] = None, ssh_password: Optional[str] = None, verbose: bool = False) -> CheckResult:
     """HOST-UPDATE-001: Auto-updates configured."""
+    meta = _meta("HOST-UPDATE-001")
+    
     if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         if verbose:
             print("[DEBUG] HOST-UPDATE-001: missing SSH params")
-        return CheckResult("HOST-UPDATE-001", "Auto-updates enabled", "Host", Severity.MEDIUM, Status.WARN,
-                          "SSH credentials missing")
+        status = Status.WARN
+        details = "SSH credentials missing"
     
     # Use scanner instead of inline code
     scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
@@ -133,24 +176,35 @@ def check_auto_updates(ssh_host: Optional[str] = None, ssh_user: Optional[str] =
             print(f"[DEBUG] HOST-UPDATE-001: auto-updates='{output.strip()}'")
         
         if "enabled" in output:
-            return CheckResult("HOST-UPDATE-001", "Auto-updates enabled", "Host", Severity.MEDIUM, Status.PASS,
-                              "Unattended  upgrades enabled ✓")
-        return CheckResult("HOST-UPDATE-001", "Auto-updates enabled", "Host", Severity.MEDIUM, Status.WARN,
-                          "Install: apt install unattended-upgrades && systemctl enable")
+            status = Status.PASS
+            details = "Unattended  upgrades enabled ✓"
+
+        status = Status.WARN
+        details = "Install: apt install unattended-upgrades && systemctl enable"
+
     except Exception as e:
         if verbose:
             print(f"[DEBUG] HOST-UPDATE-001: error {e}")
-        return CheckResult("HOST-UPDATE-001", "Auto-updates enabled", "Host", Severity.MEDIUM, Status.WARN, str(e))
+        status = Status.WARN
+        details = str(e)
+        
+    return CheckResult(
+        id=meta["id"], layer=meta["layer"], name=meta["name"],
+        status=status, severity=Severity[meta["severity"]], details=details
+    )
 
 
 def check_permissions(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
                      ssh_key: Optional[str] = None, ssh_password: Optional[str] = None, verbose: bool = False) -> CheckResult:
     """HOST-PERM-001: Secure file permissions."""
+    meta = _meta("HOST-PERM-001")
+    
     if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         if verbose:
             print("[DEBUG] HOST-PERM-001: missing SSH params")
-        return CheckResult("HOST-PERM-001", "Secure permissions", "Host", Severity.MEDIUM, Status.WARN,
-                          "SSH credentials missing")
+        status = Status.WARN
+        details = "SSH credentials missing"
+
     
     # Use scanner instead of inline code
     scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
@@ -164,24 +218,34 @@ def check_permissions(ssh_host: Optional[str] = None, ssh_user: Optional[str] = 
             print(f"[DEBUG] HOST-PERM-001: {world_writable} world-writable SSH files")
         
         if world_writable > 0:
-            return CheckResult("HOST-PERM-001", "Secure permissions", "Host", Severity.MEDIUM, Status.WARN,
-                              f"{world_writable} world-writable files in /etc/ssh")
-        return CheckResult("HOST-PERM-001", "Secure permissions", "Host", Severity.MEDIUM, Status.PASS,
-                          "No insecure permissions detected")
+            status = Status.WARN
+            details = f"{world_writable} world-writable files in /etc/ssh"
+
+        status = Status.PASS
+        details = "No insecure permissions detected"
+
     except Exception as e:
         if verbose:
             print(f"[DEBUG] HOST-PERM-001: error {e}")
-        return CheckResult("HOST-PERM-001", "Secure permissions", "Host", Severity.MEDIUM, Status.WARN, str(e))
+        status = Status.WARN
+        details = str(e)
+        
+    return CheckResult(
+        id=meta["id"], layer=meta["layer"], name=meta["name"],
+        status=status, severity=Severity[meta["severity"]], details=details
+    )
 
 
 def check_logging(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
                  ssh_key: Optional[str] = None, ssh_password: Optional[str] = None, verbose: bool = False) -> CheckResult:
     """HOST-LOG-001: Logging configured."""
+    meta = _meta("HOST-LOG-001")
+    
     if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         if verbose:
             print("[DEBUG] HOST-LOG-001: missing SSH params")
-        return CheckResult("HOST-LOG-001", "Logging configured", "Host", Severity.LOW, Status.WARN,
-                          "SSH credentials missing")
+        status = Status.WARN
+        details = "SSH credentials missing"
     
     # Use scanner instead of inline code
     scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
@@ -194,25 +258,36 @@ def check_logging(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None
             print(f"[DEBUG] HOST-LOG-001: rsyslog='{output.strip()}'")
         
         if "active" in output:
-            return CheckResult("HOST-LOG-001", "Logging configured", "Host", Severity.LOW, Status.PASS,
-                              "rsyslog logging service active ✓")
-        return CheckResult("HOST-LOG-001", "Logging configured", "Host", Severity.LOW, Status.WARN,
-                          "Install logging: apt install rsyslog")
+            status = Status.PASS
+            details = "rsyslog logging service active ✓"
+
+        status = Status.WARN
+        details = "Install logging: apt install rsyslog"
+
     except Exception as e:
         if verbose:
             print(f"[DEBUG] HOST-LOG-001: error {e}")
-        return CheckResult("HOST-LOG-001", "Logging configured", "Host", Severity.LOW, Status.WARN, str(e))
-    
-    
+        status = Status.WARN
+        details = str(e)
+
+    return CheckResult(
+        id=meta["id"], layer=meta["layer"], name=meta["name"],
+        status=status, severity=Severity[meta["severity"]], details=details
+    )
+
+
 def check_gunicorn_user(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
                        ssh_key: Optional[str] = None, ssh_password: Optional[str] = None,
                        verbose: bool = False) -> CheckResult:
     """HOST-SVC-GUNICORN: Gunicorn runs as non-root user."""
+    meta = _meta("HOST-SVC-GUNICORN")
+    
     if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         if verbose:
             print("[DEBUG] HOST-SVC-GUNICORN: missing SSH params")
-        return CheckResult("HOST-SVC-GUNICORN", "Gunicorn non-root", "Host", Severity.HIGH, Status.WARN,
-                          "SSH credentials missing")
+        status = Status.WARN
+        details = "SSH credentials missing"
+
     
     # Use scanner instead of inline code
     scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
@@ -227,28 +302,39 @@ def check_gunicorn_user(ssh_host: Optional[str] = None, ssh_user: Optional[str] 
             print(f"[DEBUG] HOST-SVC-GUNICORN: user='{gunicorn_user}'")
             
         if not gunicorn_user:
-            return CheckResult("HOST-SVC-GUNICORN", "Gunicorn non-root", "Host", Severity.HIGH, Status.WARN,
-                              "Gunicorn process not found")
+            status = Status.WARN
+            details = "Gunicorn process not found"
+
         if gunicorn_user in ("root", "0"):
-            return CheckResult("HOST-SVC-GUNICORN", "Gunicorn non-root", "Host", Severity.HIGH, Status.FAIL,
-                              f"Gunicorn runs as root (user: {gunicorn_user}). Use non-root systemd user.")
-        return CheckResult("HOST-SVC-GUNICORN", "Gunicorn non-root", "Host", Severity.HIGH, Status.PASS,
-                          f"Gunicorn runs as non-root user '{gunicorn_user}' ✓")
+            status = Status.FAIL
+            details = f"Gunicorn runs as root (user: {gunicorn_user}). Use non-root systemd user."
+
+        status = Status.PASS
+        details = f"Gunicorn runs as non-root user '{gunicorn_user}' ✓"
+    
     except Exception as e:
         if verbose:
             print(f"[DEBUG] HOST-SVC-GUNICORN: error {e}")
-        return CheckResult("HOST-SVC-GUNICORN", "Gunicorn non-root", "Host", Severity.HIGH, Status.WARN, str(e))
+        status = Status.WARN
+        details = str(e)
+        
+    return CheckResult(
+        id=meta["id"], layer=meta["layer"], name=meta["name"],
+        status=status, severity=Severity[meta["severity"]], details=details
+    )
 
 
 def check_uwsgi_user(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
                     ssh_key: Optional[str] = None, ssh_password: Optional[str] = None,
                     verbose: bool = False) -> CheckResult:
     """HOST-SVC-UWSGI: uWSGI runs as non-root user."""
+    meta = _meta("HOST-SVC-UWSGI")
+    
     if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         if verbose:
             print("[DEBUG] HOST-SVC-UWSGI: missing SSH params")
-        return CheckResult("HOST-SVC-UWSGI", "uWSGI non-root", "Host", Severity.HIGH, Status.WARN,
-                          "SSH credentials missing")
+        status = Status.WARN
+        details = "SSH credentials missing"
     
     # Use scanner instead of inline code
     scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
@@ -263,28 +349,39 @@ def check_uwsgi_user(ssh_host: Optional[str] = None, ssh_user: Optional[str] = N
             print(f"[DEBUG] HOST-SVC-UWSGI: user='{uwsgi_user}'")
             
         if not uwsgi_user:
-            return CheckResult("HOST-SVC-UWSGI", "uWSGI non-root", "Host", Severity.HIGH, Status.PASS,
-                              "uWSGI process not found (not in use)")
+            status = Status.PASS
+            details = "uWSGI process not found (not in use)"
+            
         if uwsgi_user in ("root", "0"):
-            return CheckResult("HOST-SVC-UWSGI", "uWSGI non-root", "Host", Severity.HIGH, Status.FAIL,
-                              f"uWSGI runs as root (user: {uwsgi_user}). Use non-root systemd user.")
-        return CheckResult("HOST-SVC-UWSGI", "uWSGI non-root", "Host", Severity.HIGH, Status.PASS,
-                          f"uWSGI runs as non-root user '{uwsgi_user}' ✓")
+            status = Status.FAIL
+            details = f"uWSGI runs as root (user: {uwsgi_user}). Use non-root systemd user."
+
+        status = Status.PASS
+        details = f"uWSGI runs as non-root user '{uwsgi_user}' ✓"
+
     except Exception as e:
         if verbose:
             print(f"[DEBUG] HOST-SVC-UWSGI: error {e}")
-        return CheckResult("HOST-SVC-UWSGI", "uWSGI non-root", "Host", Severity.HIGH, Status.WARN, str(e))
+        status = Status.WARN
+        details = str(e)
+
+    return CheckResult(
+        id=meta["id"], layer=meta["layer"], name=meta["name"],
+        status=status, severity=Severity[meta["severity"]], details=details
+    )
 
 
 def check_mysql_user(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
                     ssh_key: Optional[str] = None, ssh_password: Optional[str] = None,
                     verbose: bool = False) -> CheckResult:
     """HOST-SVC-MYSQL: MySQL runs as non-root user."""
+    meta = _meta("HOST-SVC-MYSQL")
+    
     if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         if verbose:
             print("[DEBUG] HOST-SVC-MYSQL: missing SSH params")
-        return CheckResult("HOST-SVC-MYSQL", "MySQL non-root", "Host", Severity.HIGH, Status.WARN,
-                          "SSH credentials missing")
+        status = Status.WARN
+        details = "SSH credentials missing"
     
     # Use scanner instead of inline code
     scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
@@ -299,28 +396,40 @@ def check_mysql_user(ssh_host: Optional[str] = None, ssh_user: Optional[str] = N
             print(f"[DEBUG] HOST-SVC-MYSQL: user='{mysql_user}'")
             
         if not mysql_user:
-            return CheckResult("HOST-SVC-MYSQL", "MySQL non-root", "Host", Severity.HIGH, Status.PASS,
-                              "MySQL process not found (not in use)")
+            status = Status.PASS
+            details = "MySQL process not found (not in use)"
+
         if mysql_user in ("root", "0"):
-            return CheckResult("HOST-SVC-MYSQL", "MySQL non-root", "Host", Severity.HIGH, Status.FAIL,
-                              f"MySQL runs as root (user: {mysql_user}). Should run as 'mysql' user.")
-        return CheckResult("HOST-SVC-MYSQL", "MySQL non-root", "Host", Severity.HIGH, Status.PASS,
-                          f"MySQL runs as non-root user '{mysql_user}' ✓")
+            status = Status.FAIL
+            details = f"MySQL runs as root (user: {mysql_user}). Should run as 'mysql' user."
+
+        status = Status.PASS
+        details = f"MySQL runs as non-root user '{mysql_user}' ✓"
+
     except Exception as e:
         if verbose:
             print(f"[DEBUG] HOST-SVC-MYSQL: error {e}")
-        return CheckResult("HOST-SVC-MYSQL", "MySQL non-root", "Host", Severity.HIGH, Status.WARN, str(e))
+        status = Status.WARN
+        details = str(e)
+
+    return CheckResult(
+        id=meta["id"], layer=meta["layer"], name=meta["name"],
+        status=status, severity=Severity[meta["severity"]], details=details
+    )
 
 
 def check_redis_user(ssh_host: Optional[str] = None, ssh_user: Optional[str] = None, 
                     ssh_key: Optional[str] = None, ssh_password: Optional[str] = None,
                     verbose: bool = False) -> CheckResult:
     """HOST-SVC-REDIS: Redis runs as non-root user."""
+    meta = _meta("HOST-SVC-REDIS")
+    
     if not (ssh_host and ssh_user and (ssh_key or ssh_password)):
         if verbose:
             print("[DEBUG] HOST-SVC-REDIS: missing SSH params")
-        return CheckResult("HOST-SVC-REDIS", "Redis non-root", "Host", Severity.HIGH, Status.WARN,
-                          "SSH credentials missing")
+        status = Status.WARN
+        details = "SSH credentials missing"
+
     
     # Use scanner instead of inline code
     scanner = SSHScanner(host=ssh_host, user=ssh_user, key_path=ssh_key, password=ssh_password, verbose=verbose)
@@ -335,14 +444,23 @@ def check_redis_user(ssh_host: Optional[str] = None, ssh_user: Optional[str] = N
             print(f"[DEBUG] HOST-SVC-REDIS: user='{redis_user}'")
             
         if not redis_user:
-            return CheckResult("HOST-SVC-REDIS", "Redis non-root", "Host", Severity.HIGH, Status.PASS,
-                              "Redis process not found (not in use)")
+            status = Status.PASS
+            details = "Redis process not found (not in use)"
+
         if redis_user in ("root", "0"):
-            return CheckResult("HOST-SVC-REDIS", "Redis non-root", "Host", Severity.HIGH, Status.FAIL,
-                              f"Redis runs as root (user: {redis_user}). Should run as 'redis' user.")
-        return CheckResult("HOST-SVC-REDIS", "Redis non-root", "Host", Severity.HIGH, Status.PASS,
-                          f"Redis runs as non-root user '{redis_user}' ✓")
+            status = Status.FAIL
+            details = f"Redis runs as root (user: {redis_user}). Should run as 'redis' user."
+
+        status = Status.PASS
+        details = f"Redis runs as non-root user '{redis_user}' ✓"
+
     except Exception as e:
         if verbose:
             print(f"[DEBUG] HOST-SVC-REDIS: error {e}")
-        return CheckResult("HOST-SVC-REDIS", "Redis non-root", "Host", Severity.HIGH, Status.WARN, str(e))
+        status = Status.WARN
+        details = str(e)
+        
+    return CheckResult(
+        id=meta["id"], layer=meta["layer"], name=meta["name"],
+        status=status, severity=Severity[meta["severity"]], details=details
+    )
