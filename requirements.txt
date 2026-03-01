@@ -5,3 +5,4 @@ PyYAML==6.0.1
 reportlab==4.2.2
 argparse  # stdlib
 pytest==7.4.0
+nginxparser_eb
