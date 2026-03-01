@@ -49,7 +49,7 @@ def check_debug_mode(http_scanner: HttpScanner, verbose: bool = False) -> CheckR
         ]
         if any(marker in body for marker in debug_markers):
             status = Status.FAIL
-            details = "Debug-style error/traceback content detected in root response."
+            details = "DEBUG=True detected. → Set DEBUG=False in config.py or environment"
         else:
             status = Status.PASS
             details = "No obvious debug/traceback content in root response."

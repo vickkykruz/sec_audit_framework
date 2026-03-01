@@ -466,3 +466,39 @@ class ScanResult:
 
         # Limit to top 5 to keep it readable
         return recs[:5]
+    
+    
+    def priority_fixes(self) -> str:
+        """Return HTML for Top 5 Priority Fixes."""
+        issues = [r for r in self.checks if r.status != Status.PASS]
+        priority = sorted(issues, key=lambda r: (r.severity.value, 0 if r.status == Status.FAIL else 1))[:5]
+        
+        if not priority:
+            return """
+            <div style="padding: 20px; background: #e8f5e8; border-left: 5px solid #28a745;">
+                <h3>🎉 No Priority Fixes Needed</h3>
+                <p>All critical security checks passed. Excellent baseline!</p>
+            </div>
+            """
+        
+        fixes_html = "<h3>🔥 Top 5 Priority Fixes</h3><ol>"
+        for result in priority:
+            icon = "❌" if result.status == Status.FAIL else "⚠️"
+            fixes_html += f"""
+                <li><b>{icon} {result.name}</b> [{result.status.name} {result.severity.name}]<br/>
+                    <i>{result.details}</i></li>
+            """
+        fixes_html += "</ol>"
+        return fixes_html
+
+
+    def server_fingerprint(self) -> dict:
+        """Extract version info from checks for fingerprint table."""
+        # Safe fallback - uses getattr with defaults
+        versions = {
+            "os": getattr(self, '_os_version', 'N/A'),
+            "docker": getattr(self, '_docker_version', 'N/A'),
+            "webserver": getattr(self, '_webserver_version', 'N/A'),
+            "app": getattr(self, '_app_version', 'N/A'),
+        }
+        return versions

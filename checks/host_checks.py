@@ -50,7 +50,7 @@ def check_ssh_hardening(ssh_host: Optional[str] = None, ssh_user: Optional[str] 
             
         if "yes" in line.lower():
             status = Status.FAIL
-            details = f"PermitRootLogin enabled: '{line}'. Fix: Set 'PermitRootLogin no'"
+            details = f"PermitRootLogin enabled: '{line}'. → Edit /etc/ssh/sshd_config → PermitRootLogin no → sudo systemctl restart ssh"
 
         status = Status.PASS
         details = f"SSH root login disabled ✓ ({line})"
@@ -91,7 +91,7 @@ def check_firewall(ssh_host: Optional[str] = None, ssh_user: Optional[str] = Non
         
         if "inactive" in text:
             status = Status.FAIL
-            details = "ufw inactive. Run: sudo ufw enable"
+            details = "ufw inactive. → sudo ufw enable && sudo ufw allow 22/tcp && sudo ufw status"
 
         if "status: active" in text:
             status = Status.PASS

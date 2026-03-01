@@ -349,6 +349,13 @@ def generate_pdf(scan_result: ScanResult, output_path: str) -> None:
     heatmap_table.setStyle(TableStyle(heatmap_style))
     story.append(heatmap_table)
     story.append(Spacer(1, 14))
+    
+    # ── TOP 5 PRIORITY FIXES ────────────────────────────────────────────────────
+    story.extend(_section("Priority Fixes", styles))
+    priority_html = scan_result.priority_fixes()
+    priority_para = Paragraph(priority_html, styles["body"])
+    story.append(priority_para)
+    story.append(Spacer(1, 14))
 
     # ── CONFIGURATION DRIFT ───────────────────────────────────────────────────
     story.extend(_section("Configuration Drift vs Hardened Flask LMS", styles))
@@ -548,11 +555,15 @@ def generate_pdf(scan_result: ScanResult, output_path: str) -> None:
     # ── SERVER FINGERPRINT ────────────────────────────────────────────────────
     story.append(Spacer(1, 14))
     story.extend(_section("Server Fingerprint", styles))
+    
+    versions = scan_result.server_fingerprint()
 
-    fp_data = [
-        ["Detected Stack", scan_result.stack_fingerprint],
-        ["Inference Method", "HTTP headers, framework behaviours, container/host findings"],
-    ]
+    fp_data = []
+    for key, value in versions.items():
+        label = {"os": "OS", "docker": "Docker", "webserver": "Web Server", "app": "App"}.get(key, key.title())
+        bg_color = LIGHT_GREEN if value != "N/A" else LIGHT_AMBER
+        fp_data.append([label, value])
+    
     fp_table = Table(fp_data, colWidths=[50*mm, PAGE_W - 2*MARGIN - 50*mm])
     fp_table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
@@ -560,7 +571,7 @@ def generate_pdf(scan_result: ScanResult, output_path: str) -> None:
         ("GRID", (0, 0), (-1, -1), 0.5, RULE_GREY),
         ("TOPPADDING", (0, 0), (-1, -1), 6),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, ROW_ALT]),
+        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [bg_color, ROW_ALT]),
         ("TEXTCOLOR", (0, 0), (-1, -1), TEXT_DARK),
     ]))
     story.append(fp_table)

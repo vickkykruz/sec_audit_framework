@@ -196,6 +196,14 @@ CHECKS: List[Dict[str, str]] = [
         "recommendation": "Add 'USER 1000' (or non-root UID:GID) near end of Dockerfile."
     },
     {
+        "id": "CT-CONF-DOCKERFILE",
+        "layer": "container",
+        "name": "Dockerfile best practices",
+        "severity": "MEDIUM",
+        "description": "Performs basic static analysis of the Dockerfile: base image, USER, HEALTHCHECK, and use of latest tag.",
+        "recommendation": "Use a pinned base image version, run as a non-root USER, and define a HEALTHCHECK for robust container behavior.",
+    },
+    {
         "id": "CONT-CONF-HEALTH",
         "layer": "container",
         "name": "Dockerfile HEALTHCHECK",
@@ -210,6 +218,14 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Parses docker-compose.yml services for deploy.resources.limits presence.",
         "recommendation": "Add deploy.resources.limits.cpu: 0.5 and deploy.resources.limits.memory: 256M to services."
+    },
+     {
+        "id": "CT-CONF-COMPOSE-PORTS",
+        "layer": "container",
+        "name": "Compose host-published ports",
+        "severity": "MEDIUM",
+        "description": "Inspects docker-compose.yml services and reports any host-published ports.",
+        "recommendation": "Limit host-published ports to what is strictly needed, and avoid exposing admin/debug ports to the internet.",
     },
 
     # ═══════════════════════════════════════════════════════════════════════════════

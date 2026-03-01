@@ -21,6 +21,7 @@ class DockerScanner:
         self.verbose = verbose
         self.client = None
     
+    
     def connect(self) -> docker.DockerClient:
         """Connect to Docker daemon and return client."""
         if self.verbose:
@@ -37,6 +38,7 @@ class DockerScanner:
                 print(f"[DEBUG] Docker: client creation failed: {exc!r}")
             raise RuntimeError(f"Docker daemon not accessible ({exc})")
     
+    
     def get_target_container(self) -> Container:
         """Get first running container (same logic as before)."""
         if self.verbose:
@@ -52,6 +54,7 @@ class DockerScanner:
         if self.verbose:
             print(f"[DEBUG] Docker: selected container name={container.name!r}, id={container.id[:12]!r}")
         return container
+    
     
     def get_container_info(self, container: Container) -> dict:
         """Extract common container info used by checks."""
@@ -74,6 +77,7 @@ class DockerfileScanner:
         self.verbose = verbose
         self.lines: list[str] = []
 
+
     def load(self):
         """This is the method that handles the load"""
         if self.verbose:
@@ -81,11 +85,13 @@ class DockerfileScanner:
         text = self.path.read_text(encoding="utf-8", errors="ignore")
         self.lines = [line.strip() for line in text.splitlines() if line.strip() and not line.strip().startswith("#")]
 
+
     def has_user_instruction(self) -> bool:
         """This is the method that check for instructions"""
         if not self.lines:
             self.load()
         return any(line.upper().startswith("USER ") for line in self.lines)
+
 
     def has_healthcheck(self) -> bool:
         """The method that check for the health of the system
@@ -96,3 +102,27 @@ class DockerfileScanner:
         if not self.lines:
             self.load()
         return any(line.upper().startswith("HEALTHCHECK ") for line in self.lines)
+    
+    
+    def get_base_image(self) -> Optional[str]:
+        """Return the image string from the first FROM instruction, or None."""
+        if not self.lines:
+            self.load()
+        for line in self.lines:
+            if line.upper().startswith("FROM "):
+                # everything after FROM
+                return line.split(None, 1)[1]
+        return None
+
+    def uses_latest_tag(self) -> bool:
+        """Return True if the base image uses 'latest' or no explicit tag."""
+        base = self.get_base_image()
+        if not base:
+            return False
+        # examples:
+        #   python:3.10-slim  -> has colon -> not latest
+        #   python:latest      -> latest
+        #   python             -> no colon -> latest-ish
+        if ":" not in base:
+            return True
+        return base.endswith(":latest")

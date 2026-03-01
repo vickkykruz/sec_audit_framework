@@ -10,7 +10,7 @@ Container/Docker Runtime Checks (6 checks)
 """
 
 
-from typing import Optional
+from typing import Optional, List
 
 from scanners.docker_scanner import DockerScanner, DockerfileScanner
 from sec_audit.results import CheckResult, Status, Severity
@@ -59,7 +59,7 @@ def check_non_root_user(docker_host: Optional[str] = None, verbose: bool = False
         
         if not user or user == "0" or user.lower() == "root":
             status = Status.FAIL
-            details = "Container runs as root (User: empty/0/root). Fix: Add 'USER 1000' to Dockerfile."
+            details = f"Container runs as root (User: '{user}'). → Add USER 1000 to Dockerfile"
         
         status = Status.PASS
         details = f"Container runs as non-root user '{user}' ✓"    
@@ -393,41 +393,64 @@ def check_dockerfile_user(path: Optional[str] = None, verbose: bool = False) -> 
     )
 
 
-def check_dockerfile_healthcheck(path: Optional[str] = None, verbose: bool = False) -> CheckResult:
-    """
-    CONT-CONF-HEALTH: Dockerfile defines HEALTHCHECK.
-    """
-    meta = _meta("CONT-CONF-HEALTH")
-    
+
+def check_dockerfile_best_practices(path: Optional[str] = None, verbose: bool = False) -> CheckResult:
+    meta = _meta("CT-CONF-DOCKERFILE")
+
     if not path:
         if verbose:
-            print(f"[DEBUG] CONT-CONF-HEALTH: Dockerfile path not provided; cannot statically verify HEALTHCHECK.")
-        status = Status.WARN
-        details = "Dockerfile path not provided; cannot statically verify HEALTHCHECK."
-        
+            print("[DEBUG] CT-CONF-DOCKERFILE: Dockerfile path not provided")
+        return CheckResult(
+            id=meta["id"], name=meta["name"], layer=meta["layer"],
+            severity=Severity[meta["severity"]], status=Status.WARN,
+            details="Dockerfile path not provided; static container build checks skipped.",
+        )
 
     try:
-        scanner = DockerfileScanner(path, verbose)
-        if scanner.has_healthcheck():
-            status = Status.PASS
-            details = "Dockerfile defines a HEALTHCHECK instruction."
-            
-        status = Status.WARN
-        details = "No HEALTHCHECK in Dockerfile; add one for better container monitoring."
-        
+        scanner = DockerfileScanner(path, verbose=verbose)
+        scanner.load()
+
+        base = scanner.get_base_image() or "unknown"
+        has_user = scanner.has_user_instruction()
+        uses_latest = scanner.uses_latest_tag()
+        has_healthcheck = scanner.has_healthcheck()
+
+        if verbose:
+            print(
+                f"[DEBUG] CT-CONF-DOCKERFILE: base='{base}', "
+                f"has_user={has_user}, uses_latest={uses_latest}, has_healthcheck={has_healthcheck}"
+            )
+
+        messages: list[str] = [f"Base image: {base}"]
+        status = Status.PASS
+
+        if not has_user:
+            status = Status.WARN
+            messages.append("No USER instruction found; container may run as root by default.")
+        if uses_latest:
+            if status == Status.PASS:
+                status = Status.WARN
+            messages.append("Base image uses 'latest' tag; pin a specific version for reproducibility.")
+        if not has_healthcheck:
+            if status == Status.PASS:
+                status = Status.WARN
+            messages.append("No HEALTHCHECK instruction; consider adding one for runtime monitoring.")
+
+        details = " ".join(messages)
+
     except Exception as e:
         if verbose:
-            print(f"[DEBUG] CONT-CONF-HEALTH: exception {e!r}")
+            print(f"[DEBUG] CT-CONF-DOCKERFILE: error {e}")
         status = Status.WARN
-        details = f"Error parsing Dockerfile: {e}"
-    
+        details = f"Dockerfile parsing failed: {e}"
+
     return CheckResult(
-        id=meta["id"], layer=meta["layer"], name=meta["name"],
-        status=status, severity=Severity[meta["severity"]], details=details
+        id=meta["id"], name=meta["name"], layer=meta["layer"],
+        severity=Severity[meta["severity"]], status=status, details=details,
     )
+
         
-        
-        
+           
 def check_compose_resource_limits(path: Optional[str] = None, verbose: bool = False) -> CheckResult:
     """
     CONT-COMP-RES: docker-compose.yml defines resource limits for services.
@@ -473,4 +496,46 @@ def check_compose_resource_limits(path: Optional[str] = None, verbose: bool = Fa
         id=meta["id"], layer=meta["layer"], name=meta["name"],
         status=status, severity=Severity[meta["severity"]], details=details
     )
+     
+
+def check_compose_ports(path: Optional[str] = None, verbose: bool = False) -> CheckResult:
+    meta = _meta("CT-CONF-COMPOSE-PORTS")
+
+    if not path:
+        if verbose:
+            print("[DEBUG] CT-CONF-COMPOSE-PORTS: compose file not provided")
+        status = Status.WARN
+        details = "docker-compose.yml path not provided; compose checks skipped."
         
+
+    try:
+        scanner = ComposeScanner(path, verbose=verbose)
+        scanner.load()
+        services = scanner.get_services()
+
+        open_ports: List[str] = []
+        for svc_name, svc in services.items():
+            ports = svc.get("ports", []) or []
+            for p in ports:
+                open_ports.append(f"{svc_name}: {p}")
+
+        if verbose:
+            print(f"[DEBUG] CT-CONF-COMPOSE-PORTS: open ports={open_ports}")
+
+        if not open_ports:
+            status = Status.PASS
+            details = "No host-published ports defined in docker-compose.yml."
+        else:
+            status = Status.WARN
+            details = "Host-published ports detected: " + ", ".join(open_ports)
+
+    except Exception as e:
+        if verbose:
+            print(f"[DEBUG] CT-CONF-COMPOSE-PORTS: error {e}")
+        status = Status.WARN
+        details = f"docker-compose.yml parsing failed: {e}"
+
+    return CheckResult(
+        id=meta["id"], name=meta["name"], layer=meta["layer"],
+        severity=Severity[meta["severity"]], status=status, details=details,
+    )   

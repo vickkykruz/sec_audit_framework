@@ -270,7 +270,12 @@ def check_nginx_hsts_config(path: Optional[str] = None, verbose: bool = False) -
     try:
         scanner = NginxConfigScanner(path, verbose)
         scanner.load()
-        if scanner.has_security_header("Strict-Transport-Security"):
+        has_hsts = scanner.has_security_header("Strict-Transport-Security")
+        
+        if verbose:
+            print(f"[DEBUG] WS-CONF-HSTS: has_hsts={has_hsts}")
+            
+        if has_hsts: 
             status = Status.PASS
             details = "Strict-Transport-Security header is configured in nginx.conf."
             
