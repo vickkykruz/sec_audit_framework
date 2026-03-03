@@ -570,7 +570,84 @@ def generate_pdf(scan_result: ScanResult, output_path: str) -> None:
         ))
 
     story.append(Spacer(1, 14))
+    
+    # ── OWASP TOP 5 RISK SUMMARY
+    story.extend(_section("OWASP Top 5 Risk Summary (2025)", styles))
 
+    owasp_data = scan_result.owasp_summary()
+    top5_order = ["A01:2025", "A02:2025", "A03:2025", "A04:2025", "A05:2025"]
+
+    _ow_th = ParagraphStyle("owasp_th", fontName="Helvetica-Bold", fontSize=9,
+                            textColor=colors.white, alignment=TA_LEFT, leading=12)
+    _ow_td = ParagraphStyle("owasp_td", fontName="Helvetica", fontSize=8,
+                            textColor=TEXT_DARK, leading=12, wordWrap="CJK")
+    _ow_pill = ParagraphStyle("owasp_pill", fontName="Helvetica-Bold", fontSize=8,
+                              textColor=colors.white, alignment=TA_CENTER, leading=11)
+
+    def _fail_rate_pill(rate: float) -> Table:
+        if rate >= 70:
+            bg = FAIL_RED
+        elif rate >= 40:
+            bg = WARN_AMBER
+        else:
+            bg = PASS_GREEN
+        pill = Table([[Paragraph(f"{rate}%", _ow_pill)]], colWidths=[23*mm])
+        pill.setStyle(TableStyle([
+            ("BACKGROUND",   (0, 0), (-1, -1), bg),
+            ("TOPPADDING",   (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING",(0, 0), (-1, -1), 3),
+            ("LEFTPADDING",  (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        return pill
+
+    owasp_rows = [[
+        Paragraph("OWASP Category", _ow_th),
+        Paragraph("Failed Checks", _ow_th),
+        Paragraph("Fail Rate", _ow_th),
+    ]]
+
+    owasp_row_styles = [
+        ("BACKGROUND",   (0, 0), (-1, 0), STEEL),
+        ("ALIGN",        (1, 1), (-1, -1), "CENTER"),
+        ("ALIGN",        (0, 0), (0, -1), "LEFT"),
+        ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+        ("GRID",         (0, 0), (-1, -1), 0.5, RULE_GREY),
+        ("TOPPADDING",   (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 7),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+    ]
+
+    populated = [(cat, owasp_data.get(cat)) for cat in top5_order if owasp_data.get(cat)]
+
+    if populated:
+        for row_idx, (cat, data) in enumerate(populated, 1):
+            fail_rate = float(data.get("fail_rate", 0))
+            label = f"<b>{cat}</b> – {data['label']}"
+            owasp_rows.append([
+                Paragraph(label, _ow_td),
+                Paragraph(str(data["failed"]), ParagraphStyle(
+                    "owasp_fc", fontName="Helvetica-Bold", fontSize=9,
+                    textColor=TEXT_DARK, alignment=TA_CENTER, leading=12,
+                )),
+                _fail_rate_pill(fail_rate),
+            ])
+            if row_idx % 2 == 0:
+                owasp_row_styles.append(("BACKGROUND", (0, row_idx), (-1, row_idx), ROW_ALT))
+    else:
+        owasp_rows.append([
+            Paragraph("No OWASP Top 5 categories triggered by current checks.", _ow_td),
+            Paragraph("—", _ow_td),
+            Paragraph("—", _ow_td),
+        ])
+
+    owasp_table = Table(owasp_rows, colWidths=[100*mm, 32*mm, 25*mm])
+    owasp_table.setStyle(TableStyle(owasp_row_styles))
+    story.append(owasp_table)
+    story.append(Spacer(1, 14))
+    
     # ── CONFIGURATION DRIFT ───────────────────────────────────────────────────
     story.extend(_section("Configuration Drift vs Hardened Flask LMS", styles))
     drift = scan_result.compare_to_baseline(HARDENED_FLASK_BASELINE)

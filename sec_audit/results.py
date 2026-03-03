@@ -16,6 +16,7 @@ from typing import List, Dict, Any
 from enum import Enum
 from datetime import datetime
 from sec_audit.baseline import BaselineProfile, HARDENED_FLASK_BASELINE
+from sec_audit.config import CHECKS
 
 
 class Status(str, Enum):
@@ -41,6 +42,19 @@ class Grade(str, Enum):
     C = "C"  # 70-79%
     D = "D"  # 60-69%
     F = "F"  # <60%
+    
+
+# Add this at module level (top of results.py, after imports)
+def _build_owasp_mapping() -> dict:
+    """Build mapping: check_id -> list of OWASP categories from config."""
+    mapping = {}
+    for check in CHECKS:
+        cats = check.get("owasp", [])
+        if cats:
+            mapping[check["id"]] = cats
+    return mapping
+
+OWASP_MAPPING = _build_owasp_mapping()
     
 
 @dataclass
@@ -499,3 +513,37 @@ class ScanResult:
             "app": getattr(self, '_app_version', 'N/A'),
         }
         return versions
+    
+    
+    def owasp_summary(self) -> dict:
+        """
+        Aggregate findings by OWASP Top 10:2025 (focus on A01–A05).
+        Returns: { "A01:2025": {"label": "...", "total": int, "failed": int, "fail_rate": float}, ... }
+        """
+        summary = {}
+        
+        # Aggregate by OWASP categories from your config
+        for check in self.checks:
+            cats = OWASP_MAPPING.get(check.id, [])
+            for cat in cats:
+                entry = summary.setdefault(cat, {"total": 0, "failed": 0})
+                entry["total"] += 1
+                if check.status != Status.PASS:
+                    entry["failed"] += 1
+
+        # OWASP Top 10:2025 Top 5 labels (from your screenshot)
+        labels_2025 = {
+            "A01:2025": "Broken Access Control",
+            "A02:2025": "Security Misconfiguration", 
+            "A03:2025": "Software Supply Chain Failures",
+            "A04:2025": "Cryptographic Failures",
+            "A05:2025": "Injection",
+            "A09:2025": "Security Logging & Alerting Failures",
+        }
+
+        # Add labels and calculate fail rates
+        for cat, data in summary.items():
+            data["label"] = labels_2025.get(cat, cat)
+            data["fail_rate"] = round((data["failed"] / data["total"] * 100), 1) if data["total"] > 0 else 0.0
+
+        return summary

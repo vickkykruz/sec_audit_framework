@@ -13,6 +13,7 @@ Supports:
 
 # Uses argparse for CLI interface
 import json
+import time
 import argparse
 from types import SimpleNamespace
 
@@ -193,6 +194,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run_from_args(args: SimpleNamespace) -> None:
     """Execute scan based on parsed arguments."""
+    start = time.time()
+    
     print(f"🏛️  [SEC-AUDIT v1.0.0] Starting scan...")
     print(f"  🎯 Target: {args.target}")
     print(f"  ⚙️  Mode: {args.mode}")
@@ -352,5 +355,6 @@ def run_from_args(args: SimpleNamespace) -> None:
             print(f"📄 PDF report generated: {args.output}")
         except Exception as e:
             print(f"❌ Failed to generate PDF: {e!r}")
-    
-    print("✅ FULL 24-CHECK SCAN COMPLETE!")
+    end = time.time()
+    duration = end - start 
+    print(f"⏱  Scan duration: {duration:.1f} seconds")
