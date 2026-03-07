@@ -575,7 +575,10 @@ def generate_pdf(scan_result: ScanResult, output_path: str) -> None:
     story.extend(_section("OWASP Top 5 Risk Summary (2025)", styles))
 
     owasp_data = scan_result.owasp_summary()
-    top5_order = ["A01:2025", "A02:2025", "A03:2025", "A04:2025", "A05:2025"]
+    top10_order = [
+        "A01:2025", "A02:2025", "A03:2025", "A04:2025", "A05:2025",
+        "A06:2025", "A07:2025", "A08:2025", "A09:2025", "A10:2025",
+    ]
 
     _ow_th = ParagraphStyle("owasp_th", fontName="Helvetica-Bold", fontSize=9,
                             textColor=colors.white, alignment=TA_LEFT, leading=12)
@@ -620,7 +623,7 @@ def generate_pdf(scan_result: ScanResult, output_path: str) -> None:
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
     ]
 
-    populated = [(cat, owasp_data.get(cat)) for cat in top5_order if owasp_data.get(cat)]
+    populated = [(cat, owasp_data.get(cat)) for cat in top10_order if owasp_data.get(cat)]
 
     if populated:
         for row_idx, (cat, data) in enumerate(populated, 1):
