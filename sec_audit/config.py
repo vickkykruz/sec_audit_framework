@@ -27,7 +27,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "HIGH",
         "description": "Checks that web framework debug mode is disabled in production.",
         "recommendation": "Set DEBUG=False in Flask/Django settings. Remove debug banners and error details.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "LOW",
+        "impact_weight": 2.0,
     },
     {
         "id": "APP-COOKIE-001",
@@ -36,7 +38,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "HIGH",
         "description": "Verifies session cookies have HttpOnly, Secure, and SameSite=Strict/Lax flags.",
         "recommendation": "Configure session cookies with secure flags in framework settings.",
-        "owasp": ["A04:2025"]
+        "owasp": ["A04:2025"],
+        "effort": "LOW",
+        "impact_weight": 2.0,
     },
     {
         "id": "APP-CSRF-001",
@@ -45,7 +49,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Detects CSRF protection tokens in forms or framework-specific CSRF headers.",
         "recommendation": "Enable CSRF middleware in Flask/Django. Validate tokens on state-changing requests.",
-        "owasp": ["A01:2025"]
+        "owasp": ["A01:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.7,
     },
     {
         "id": "APP-ADMIN-001",
@@ -54,7 +60,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Checks for exposed /admin, /debug, /test endpoints returning 200.",
         "recommendation": "Disable or protect admin/debug endpoints with authentication.",
-        "owasp": ["A01:2025"]
+        "owasp": ["A01:2025"],
+        "effort": "LOW",
+        "impact_weight": 1.7,
     },
     {
         "id": "APP-RATE-001",
@@ -63,7 +71,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Tests for rate limiting by sending rapid requests and checking 429 responses.",
         "recommendation": "Implement rate limiting at application level (Flask-Limiter, Django-ratelimit).",
-        "owasp": ["A01:2025"]
+        "owasp": ["A01:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.4,
     },
     {
         "id": "APP-PASS-001",
@@ -72,7 +82,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "LOW",
         "description": "Checks password reset/registration forms for complexity requirements.",
         "recommendation": "Enforce minimum 12 chars, mixed case, numbers, symbols in password policy.",
-        "owasp": ["A04:2025"]
+        "owasp": ["A04:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.0,
     },
 
     # ═══════════════════════════════════════════════════════════════════════════════
@@ -85,7 +97,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "HIGH",
         "description": "Verifies Strict-Transport-Security header with max-age >= 31536000.",
         "recommendation": "Add HSTS header: 'Strict-Transport-Security: max-age=31536000; includeSubDomains'",
-        "owasp": ["A04:2025"]
+        "owasp": ["A04:2025"],
+        "effort": "LOW",
+        "impact_weight": 2.0,
     },
     {
         "id": "WS-SEC-001",
@@ -94,7 +108,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "HIGH",
         "description": "Checks CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy headers.",
         "recommendation": "Configure security headers in Nginx/Apache virtual host configuration.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "LOW",
+        "impact_weight": 1.7,
     },
     {
         "id": "WS-TLS-001",
@@ -103,7 +119,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "HIGH",
         "description": "Analyzes TLS version and cipher suite strength via SSL labs heuristics.",
         "recommendation": "Disable TLS 1.0/1.1. Use only strong ciphers (ECDHE + AES-GCM).",
-        "owasp": ["A04:2025"]
+        "owasp": ["A04:2025"],
+        "effort": "HIGH",
+        "impact_weight": 2.0,
     },
     {
         "id": "WS-SRV-001",
@@ -112,7 +130,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Checks Server header doesn't leak Nginx/Apache version information.",
         "recommendation": "Set 'server_tokens off' in Nginx or ServerTokens Prod in Apache.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "LOW",
+        "impact_weight": 1.4,
     },
     {
         "id": "WS-DIR-001",
@@ -121,7 +141,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Attempts access to common directories (/, /static/, /uploads/) expecting 403/404.",
         "recommendation": "Disable autoindex in Nginx ('autoindex off') and DirectoryIndex in Apache.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "LOW",
+        "impact_weight": 1.4,
     },
     {
         "id": "WS-LIMIT-001",
@@ -130,7 +152,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "LOW",
         "description": "Verifies client_max_body_size and request limits are configured.",
         "recommendation": "Set client_max_body_size 1m; in Nginx location blocks.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "LOW",
+        "impact_weight": 1.0,
     },
     {
         "id": "WS-CONF-HSTS",
@@ -139,7 +163,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Checks nginx.conf for a Strict-Transport-Security header configuration.",
         "recommendation": "Add 'add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains; preload\" always;' to your HTTPS server block.",
-        "owasp": ["A04:2025"]
+        "owasp": ["A04:2025"],
+        "effort": "LOW",
+        "impact_weight": 1.7,
     },
     {
         "id": "WS-CONF-CSP",
@@ -148,7 +174,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Checks nginx.conf for a Content-Security-Policy header.",
         "recommendation": "Define a CSP header in nginx.conf to restrict allowed sources of scripts, styles, and other resources.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.7,
     },
 
     # ═══════════════════════════════════════════════════════════════════════════════
@@ -161,7 +189,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "HIGH",
         "description": "Inspects running container Config.User field via docker-py. FAILs if empty, '0', or 'root'.",
         "recommendation": "Add 'USER 1000' (or non-root UID) to Dockerfile. Avoid running containers as root.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "HIGH",
+        "impact_weight": 2.0,
     },
     {
         "id": "CONT-PORT-001",
@@ -170,7 +200,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Counts HostConfig.PortBindings in running container. PASS if ≤2 ports, WARN if more.",
         "recommendation": "Minimize published host ports. Use internal container networking where possible.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.4,
     },
     {
         "id": "CONT-HEALTH-001",
@@ -179,7 +211,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Checks Config.Healthcheck.Test in running container. WARN if missing.",
         "recommendation": "Add HEALTHCHECK instruction to Dockerfile (e.g., 'HEALTHCHECK CMD curl -f http://localhost/').",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.4,
     },
     {
         "id": "CONT-RES-001",
@@ -188,7 +222,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Inspects HostConfig.Memory and CpuQuota/NanoCpus. PASS if any limit is set.",
         "recommendation": "Set deploy.resources.limits in docker-compose.yml or use docker run --memory --cpus.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.4,
     },
     {
         "id": "CONT-REG-001",
@@ -197,7 +233,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Checks container image tag against trusted markers (official Docker Hub images, nginx/python/etc.).",
         "recommendation": "Use official images from docker.io/library/ or verified private registries.",
-        "owasp": ["A03:2025"]
+        "owasp": ["A03:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.7,
     },
     {
         "id": "CONT-SEC-001",
@@ -206,7 +244,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "HIGH",
         "description": "Scans Config.Env for variables with names containing 'password', 'secret', 'key', 'token', 'api_key'.",
         "recommendation": "Move secrets to Docker secrets, environment files (.env), or a secrets manager.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "HIGH",
+        "impact_weight": 2.0,
     },
     {
         "id": "CONT-CONF-USER",
@@ -215,7 +255,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "HIGH",
         "description": "Statically parses Dockerfile for USER instruction presence.",
         "recommendation": "Add 'USER 1000' (or non-root UID:GID) near end of Dockerfile.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.7,
     },
     {
         "id": "CT-CONF-DOCKERFILE",
@@ -224,7 +266,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Performs basic static analysis of the Dockerfile: base image, USER, HEALTHCHECK, and use of latest tag.",
         "recommendation": "Use a pinned base image version, run as a non-root USER, and define a HEALTHCHECK for robust container behavior.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.4,
     },
     {
         "id": "CONT-CONF-HEALTH",
@@ -233,7 +277,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Statically parses Dockerfile for HEALTHCHECK instruction presence.",
         "recommendation": "Add 'HEALTHCHECK CMD curl -f http://localhost/health || exit 1' to Dockerfile.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.4,
     },
     {
         "id": "CONT-COMP-RES",
@@ -242,7 +288,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Parses docker-compose.yml services for deploy.resources.limits presence.",
         "recommendation": "Add deploy.resources.limits.cpu: 0.5 and deploy.resources.limits.memory: 256M to services.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.4,
     },
      {
         "id": "CT-CONF-COMPOSE-PORTS",
@@ -251,7 +299,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Inspects docker-compose.yml services and reports any host-published ports.",
         "recommendation": "Limit host-published ports to what is strictly needed, and avoid exposing admin/debug ports to the internet.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.4,
     },
 
     # ═══════════════════════════════════════════════════════════════════════════════
@@ -264,7 +314,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "HIGH",
         "description": "Checks /etc/ssh/sshd_config for PermitRootLogin and fails if root login is enabled.",
         "recommendation": "Set 'PermitRootLogin no' in sshd_config and restart the SSH service.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "LOW",
+        "impact_weight": 2.0,
     },
     {
         "id": "HOST-FW-001",
@@ -273,7 +325,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "HIGH",
         "description": "Uses ufw status or iptables output to infer whether a host firewall is active.",
         "recommendation": "Enable and configure a host firewall (e.g. ufw enable, or nftables/iptables rules).",
-        "owasp": ["A02:2025"] 
+        "owasp": ["A02:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 2.0,
     },
     {
         "id": "HOST-SVC-001",
@@ -282,7 +336,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Counts running systemd services and warns if the number is unusually high.",
         "recommendation": "Review running services with systemctl and disable those not required for the web stack.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.4,
     },
     {
         "id": "HOST-UPDATE-001",
@@ -291,7 +347,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Checks if unattended-upgrades is enabled to install security updates automatically.",
         "recommendation": "Install and enable unattended-upgrades (or equivalent) for regular security patching.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.4,
     },
     {
         "id": "HOST-PERM-001",
@@ -300,7 +358,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "MEDIUM",
         "description": "Searches /etc/ssh for world-writable files, which may indicate misconfigured permissions.",
         "recommendation": "Tighten permissions in /etc/ssh so that only root can modify SSH configuration files.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "MEDIUM",
+        "impact_weight": 1.7,
     },
     {
         "id": "HOST-LOG-001",
@@ -309,7 +369,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "LOW",
         "description": "Checks whether rsyslog (or equivalent) logging service is active on the host.",
         "recommendation": "Ensure a system logging service is installed and enabled to retain audit and error logs.",
-        "owasp": ["A09:2025"]
+        "owasp": ["A09:2025"],
+        "effort": "LOW",
+        "impact_weight": 1.4,
     },
     {
         "id": "HOST-SVC-GUNICORN",
@@ -318,7 +380,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "HIGH",
         "description": "Inspects Gunicorn processes and fails if they are running as root instead of a non-privileged user.",
         "recommendation": "Run Gunicorn under a dedicated non-root account via systemd or a process manager.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "HIGH",
+        "impact_weight": 2.0,
     },
     {
         "id": "HOST-SVC-UWSGI",
@@ -327,7 +391,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "HIGH",
         "description": "Inspects uWSGI processes and fails if they run as root instead of a non-privileged user.",
         "recommendation": "Run uWSGI under a non-root service account in its service configuration.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "HIGH",
+        "impact_weight": 2.0,
     },
     {
         "id": "HOST-SVC-MYSQL",
@@ -336,7 +402,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "HIGH",
         "description": "Checks MySQL processes and fails if they run as root instead of the dedicated mysql user.",
         "recommendation": "Ensure the MySQL daemon runs under the 'mysql' user account and not as root.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "HIGH",
+        "impact_weight": 2.0,
     },
     {
         "id": "HOST-SVC-REDIS",
@@ -345,7 +413,9 @@ CHECKS: List[Dict[str, str]] = [
         "severity": "HIGH",
         "description": "Checks Redis processes and fails if they run as root instead of the dedicated redis user.",
         "recommendation": "Run Redis as the 'redis' user (or another non-root user) in the service configuration.",
-        "owasp": ["A02:2025"]
+        "owasp": ["A02:2025"],
+        "effort": "HIGH",
+        "impact_weight": 2.0,
     },
 ]
 

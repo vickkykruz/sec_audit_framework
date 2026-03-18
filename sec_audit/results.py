@@ -54,6 +54,13 @@ def _build_owasp_mapping() -> dict:
             mapping[check["id"]] = cats
     return mapping
 
+
+def _build_check_index() -> dict:
+    """Build mapping: check_id -> full check definition from config."""
+    return {c["id"]: c for c in CHECKS}
+
+
+CHECK_INDEX = _build_check_index()
 OWASP_MAPPING = _build_owasp_mapping()
     
 
@@ -551,3 +558,151 @@ class ScanResult:
             data["fail_rate"] = round((data["failed"] / data["total"] * 100), 1) if data["total"] > 0 else 0.0
 
         return summary
+    
+    
+    def _severity_score(self, severity: Severity) -> float:
+        """Map severity to a numeric base score."""
+        mapping = {
+            Severity.CRITICAL: 4.0,
+            Severity.HIGH: 3.0,
+            Severity.MEDIUM: 2.0,
+            Severity.LOW: 1.0,
+        }
+        return mapping.get(severity, 1.0)
+
+
+    def _effort_score(self, effort_str: str | None) -> float:
+        """
+        Map effort to a numeric cost.
+        Defaults to MEDIUM if not provided in config.
+        """
+        if not effort_str:
+            return 2.0  # default MEDIUM cost
+        effort_str = effort_str.upper()
+        if effort_str == "LOW":
+            return 1.0
+        if effort_str == "HIGH":
+            return 3.0
+        return 2.0  # MEDIUM / fallback
+    
+    
+    def hardening_plan(self) -> list[dict]:
+        """
+        Build a prioritised hardening plan.
+
+        For each non-PASS check:
+        - Look up effort and impact_weight from config (with sensible defaults)
+        - Compute priority_score = (severity_score * impact_weight) / effort_score
+        - Sort descending by priority_score
+        - Bucket into DAY_1 / DAY_7 / DAY_30 buckets
+
+        Returns a list of entries like:
+        {
+            "id": "...",
+            "name": "...",
+            "layer": "app",
+            "severity": "HIGH",
+            "status": "FAIL",
+            "priority_score": 5.0,
+            "bucket": "DAY_1",
+            "recommendation": "...",
+        }
+        """
+        plan_items = []
+
+        for result in self.checks:
+            if result.status == Status.PASS:
+                continue  # only plan fixes for WARN/FAIL/ERROR
+
+            cfg = CHECK_INDEX.get(result.id, {})
+            effort_str = cfg.get("effort")
+            impact_weight = float(cfg.get("impact_weight", 1.0))
+
+            sev_score = self._severity_score(result.severity)
+            eff_score = self._effort_score(effort_str)
+            priority_score = (sev_score * impact_weight) / eff_score
+
+            plan_items.append({
+                "id": result.id,
+                "name": result.name,
+                "layer": result.layer,
+                "severity": result.severity.value,
+                "status": result.status.value,
+                "priority_score": round(priority_score, 2),
+                "recommendation": cfg.get("recommendation", ""),
+            })
+
+        # Sort by descending priority_score
+        plan_items.sort(key=lambda i: i["priority_score"], reverse=True)
+
+        # Bucket into Day 1 / Day 7 / Day 30
+        total = len(plan_items)
+        if total == 0:
+            return []
+
+        # Simple split: top 30% → DAY_1, next 40% → DAY_7, rest → DAY_30
+        day1_cut = max(1, int(total * 0.3))
+        day7_cut = max(day1_cut + 1, int(total * 0.7))
+
+        for idx, item in enumerate(plan_items):
+            if idx < day1_cut:
+                item["bucket"] = "DAY_1"
+            elif idx < day7_cut:
+                item["bucket"] = "DAY_7"
+            else:
+                item["bucket"] = "DAY_30"
+
+        return plan_items
+    
+    
+    def simulate_with_fixes(self, fix_ids: list[str]) -> dict:
+        """
+        Simulate the effect of fixing a set of checks.
+
+        Treat all checks whose id is in fix_ids as PASS (only for simulation),
+        then recompute:
+        - simulated_pass_rate
+        - simulated_score_percentage
+        - simulated_grade
+        - simulated_attack_path_count
+
+        Returns a small summary dict you can embed in reports.
+        """
+        if not fix_ids:
+            return {
+                "simulated_pass_rate": self.pass_rate,
+                "simulated_score_percentage": self.score_percentage,
+                "simulated_grade": self.grade.value,
+                "simulated_attack_path_count": self.attack_path_count,
+            }
+
+        # Build a temporary list of CheckResult copies with simulated PASS for chosen IDs
+        simulated_checks: list[CheckResult] = []
+        for c in self.checks:
+            if c.id in fix_ids and c.status != Status.PASS:
+                simulated_checks.append(
+                    CheckResult(
+                        id=c.id,
+                        layer=c.layer,
+                        name=c.name,
+                        status=Status.PASS,
+                        severity=c.severity,
+                        details=c.details + " [SIMULATED FIX APPLIED]",
+                    )
+                )
+            else:
+                simulated_checks.append(c)
+
+        # Create a temporary ScanResult for simulation
+        sim_result = ScanResult(
+            target=self.target,
+            mode=self.mode,
+            checks=simulated_checks,
+        )
+
+        return {
+            "simulated_pass_rate": sim_result.pass_rate,
+            "simulated_score_percentage": sim_result.score_percentage,
+            "simulated_grade": sim_result.grade.value,
+            "simulated_attack_path_count": sim_result.attack_path_count,
+        }
