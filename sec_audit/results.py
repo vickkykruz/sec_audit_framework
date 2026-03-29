@@ -1,40 +1,40 @@
 """
 Security Audit Result Models and Validation.
-
+ 
 Defines standardized data structures for:
 - Individual check results (pass/fail + evidence)
 - Aggregated scan results (scores, risk levels)
 - Report generation data (tables, summaries)
-
+ 
 Supports JSON serialization for CI/CD integration.
 """
-
-
+ 
+ 
 # Result dataclass, ScoreCalculator, Validation schemas
 from dataclasses import dataclass, asdict, field
 from typing import List, Dict, Any
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 from sec_audit.baseline import BaselineProfile, HARDENED_FLASK_BASELINE
 from sec_audit.config import CHECKS
-
-
+ 
+ 
 class Status(str, Enum):
     """Standardized check statuses."""
     PASS = "PASS"
     FAIL = "FAIL"
     WARN = "WARN"
     ERROR = "ERROR"
-
-
+ 
+ 
 class Severity(str, Enum):
     """Standardized check severities."""
     CRITICAL = "CRITICAL"
     HIGH = "HIGH"
     MEDIUM = "MEDIUM"
     LOW = "LOW"
-
-
+ 
+ 
 class Grade(str, Enum):
     """Overall scan grades (A-F)."""
     A = "A"  # 90-100%
@@ -43,7 +43,7 @@ class Grade(str, Enum):
     D = "D"  # 60-69%
     F = "F"  # <60%
     
-
+ 
 # Add this at module level (top of results.py, after imports)
 def _build_owasp_mapping() -> dict:
     """Build mapping: check_id -> list of OWASP categories from config."""
@@ -53,22 +53,22 @@ def _build_owasp_mapping() -> dict:
         if cats:
             mapping[check["id"]] = cats
     return mapping
-
-
+ 
+ 
 def _build_check_index() -> dict:
     """Build mapping: check_id -> full check definition from config."""
     return {c["id"]: c for c in CHECKS}
-
-
+ 
+ 
 CHECK_INDEX = _build_check_index()
 OWASP_MAPPING = _build_owasp_mapping()
     
-
+ 
 @dataclass
 class CheckResult:
     """
     Represents the outcome of a single security check.
-
+ 
     Fields:
         id:       Unique check identifier (e.g. APP-DEBUG-001)
         layer:    Stack layer (app, webserver, container, host)
@@ -90,7 +90,7 @@ class CheckResult:
 class ScanResult:
     """
     Represents the result of a full scan against a single target.
-
+ 
     Fields:
         target: Target URL being scanned
         mode:   Scan mode (quick | full)
@@ -100,7 +100,7 @@ class ScanResult:
     mode: str
     checks: List[CheckResult]
     generated_at: str = field(init=False, default=None)
-
+ 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict."""
         return {
@@ -124,15 +124,15 @@ class ScanResult:
     def __post_init__(self):
         """Auto-generate timestamp if not provided."""
         if not hasattr(self, 'generated_at') or self.generated_at is None:
-            self.generated_at = datetime.utcnow().isoformat() + "Z"
-
+            self.generated_at = datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z")
+ 
         
     @property
     def total_checks(self) -> int:
         """Total number of checks executed."""
         return len(self.checks)
-
-
+ 
+ 
     @property
     def pass_rate(self) -> float:
         """Percentage of PASS checks (ERRORs excluded from scoring)."""
@@ -146,8 +146,8 @@ class ScanResult:
     def score_percentage(self) -> float:
         """Overall score as percentage (0-100)."""
         return round(self.pass_rate, 1)
-
-
+ 
+ 
     @property
     def grade(self) -> Grade:
         """A-F grade based on pass rate."""
@@ -177,32 +177,41 @@ class ScanResult:
                                   if c.status != Status.PASS and c.severity == Severity.HIGH)
         }
         
-    # layer_summary defined below with full pass-rate and color logic
-
+    def layer_summary(self) -> Dict[str, Dict[str, Any]]:
+        """Breakdown by layer (app, webserver, container, host)."""
+        layers = {}
+        for check in self.checks:
+            if check.layer not in layers:
+                layers[check.layer] = {"total": 0, "passed": 0}
+            layers[check.layer]["total"] += 1
+            if check.status == Status.PASS:
+                layers[check.layer]["passed"] += 1
+        return layers
+    
     
     def detect_stack(self) -> str:
         """
         Best-effort detection of application stack from headers and findings.
-
+ 
         Returns strings like:
         - 'Flask + Nginx'
         - 'Django + Apache'
         - 'Unknown stack'
         """
         fingerprint_parts = []
-
+ 
         # 1) Web framework heuristics (from details/names)
         text_blobs = " ".join(
             [c.name for c in self.checks] + [c.details for c in self.checks]
         ).lower()
-
+ 
         if "flask" in text_blobs:
             fingerprint_parts.append("Flask")
         if "django" in text_blobs:
             fingerprint_parts.append("Django")
         if "express" in text_blobs or "node.js" in text_blobs:
             fingerprint_parts.append("Node.js")
-
+ 
         # 2) Web server from headers (you can pass headers via a special check or later via http_scanner)
         server_header = ""
         for c in self.checks:
@@ -210,19 +219,19 @@ class ScanResult:
                 # e.g. "Server: nginx/1.24.0"
                 server_header = c.details
                 break
-
+ 
         server_lower = server_header.lower()
         if "nginx" in server_lower:
             fingerprint_parts.append("Nginx")
         if "apache" in server_lower:
             fingerprint_parts.append("Apache")
-
+ 
         # 3) Container / OS hints (for future Docker/SSH integration)
         if any("docker" in c.details.lower() for c in self.checks):
             fingerprint_parts.append("Docker")
         if any("ubuntu" in c.details.lower() for c in self.checks):
             fingerprint_parts.append("Ubuntu")
-
+ 
         return " + ".join(dict.fromkeys(fingerprint_parts)) if fingerprint_parts else "Unknown stack"
     
     @property
@@ -295,12 +304,12 @@ class ScanResult:
             })
         
         return paths
-
+ 
     @property
     def attack_path_count(self) -> int:
         """Number of identified attack paths."""
         return len(self.attack_paths())
-
+ 
     @property
     def highest_attack_risk(self) -> str:
         """Highest risk level across all paths."""
@@ -318,7 +327,7 @@ class ScanResult:
     def compare_to_baseline(self, baseline: BaselineProfile) -> dict:
         """
         Compare this ScanResult against a given baseline profile.
-
+ 
         Returns:
             {
             "baseline_name": ...,
@@ -329,10 +338,10 @@ class ScanResult:
             }
         """
         current_status = {c.id: c.status for c in self.checks}
-
+ 
         improved = []
         regressed = []
-
+ 
         for check_id, expected_status in baseline.check_statuses.items():
             current = current_status.get(check_id)
             if not current:
@@ -341,9 +350,9 @@ class ScanResult:
                 improved.append(check_id)
             elif current != "PASS" and expected_status == "PASS":
                 regressed.append(check_id)
-
+ 
         pass_delta = self.summary()["status_breakdown"].get("PASS", 0) - baseline.expected_passes
-
+ 
         return {
             "baseline_name": baseline.name,
             "grade_delta": f"{self.grade} vs {baseline.expected_grade}",
@@ -395,7 +404,7 @@ class ScanResult:
         high_risk = summary["high_risk_issues"]
         score_now = self.score_percentage
         layer_data = self.layer_summary()
-
+ 
         # Identify weakest layer
         weakest_layer = None
         weakest_rate = 101
@@ -403,7 +412,7 @@ class ScanResult:
             if stats["pass_rate"] < weakest_rate:
                 weakest_rate = stats["pass_rate"]
                 weakest_layer = layer
-
+ 
         layer_labels = {
             "app": "application layer",
             "webserver": "web server layer",
@@ -411,14 +420,14 @@ class ScanResult:
             "host": "host layer",
         }
         weakest_label = layer_labels.get(weakest_layer, "infrastructure")
-
+ 
         # Build explanation in plain language
         parts = []
         parts.append(
             f"The current security posture is {self.grade} with {passed} of {total} checks passing "
             f"({score_now:.1f}% overall)."
         )
-
+ 
         if high_risk > 0:
             parts.append(
                 f"There are {high_risk} high-severity issues, mainly concentrated in the {weakest_label}, "
@@ -428,7 +437,7 @@ class ScanResult:
             parts.append(
                 "No high-severity issues were detected, but there are still medium and low risks that should be addressed over time."
             )
-
+ 
         # Mention attack paths if any
         paths = self.attack_paths()
         if paths:
@@ -440,7 +449,7 @@ class ScanResult:
             parts.append(
                 "No multi-step attack paths were found, which reduces the chance of chained exploitation across layers."
             )
-
+ 
         return " ".join(parts)
     
     
@@ -450,32 +459,32 @@ class ScanResult:
         """
         recs = []
         checks = [c for c in self.checks if c.status != "PASS"]
-
+ 
         # Group by keywords
         if any("HSTS" in c.id.upper() for c in checks):
             recs.append("Enable HSTS (Strict-Transport-Security) to enforce HTTPS on all responses.")
-
+ 
         if any("COOKIE" in c.id.upper() for c in checks):
             recs.append("Harden session cookies (set Secure, HttpOnly and SameSite attributes).")
-
+ 
         if any("TLS" in c.id.upper() for c in checks):
             recs.append("Update TLS configuration to disable weak protocols/ciphers and prefer TLS 1.2+.")
-
+ 
         if any("DEBUG" in c.id.upper() for c in checks):
             recs.append("Disable debug mode and ensure no debugging endpoints are accessible in production.")
-
+ 
         if any("ADMIN" in c.id.upper() for c in checks):
             recs.append("Restrict admin endpoints behind authentication and, ideally, IP allowlists or VPN.")
-
+ 
         if any("SSH" in c.id.upper() for c in checks):
             recs.append("Harden SSH by disabling root login and password authentication, and using key-based access.")
-
+ 
         if any(c.layer == "container" and c.status != "PASS" for c in checks):
             recs.append("Review container images to ensure non-root users, minimal exposed ports, and no secrets baked into images.")
-
+ 
         if any(c.layer == "host" and c.status != "PASS" for c in checks):
             recs.append("Review host OS hardening: firewall rules, automatic security updates, logging and file permissions.")
-
+ 
         # Limit to top 5 to keep it readable
         return recs[:5]
     
@@ -487,7 +496,7 @@ class ScanResult:
             issues,
             key=lambda r: (r.severity.value, 0 if r.status == Status.FAIL else 1)
         )[:5]
-
+ 
         return [
             {
                 "id":       result.id,
@@ -499,90 +508,8 @@ class ScanResult:
             }
             for result in priority
         ]
-
-
-    def owasp_summary(self) -> Dict[str, Dict]:
-        """
-        Map checks to OWASP Top 10:2025 categories using config.py owasp tags.
-        Returns per-category counts of total, failed, and fail_rate.
-        """
-        from sec_audit.config import CHECKS as _CHECKS
-        owasp_index: Dict[str, list] = {
-            c["id"]: c.get("owasp", []) for c in _CHECKS
-        }
-        category_stats: Dict[str, Dict] = {}
-        for check in self.checks:
-            categories = owasp_index.get(check.id, [])
-            for cat in categories:
-                if cat not in category_stats:
-                    category_stats[cat] = {"total": 0, "failed": 0}
-                category_stats[cat]["total"] += 1
-                if check.status != Status.PASS:
-                    category_stats[cat]["failed"] += 1
-
-        labels = {
-            "A01:2025": "Broken Access Control",
-            "A02:2025": "Cryptographic Failures",
-            "A03:2025": "Injection",
-            "A04:2025": "Insecure Design",
-            "A05:2025": "Security Misconfiguration",
-            "A06:2025": "Vulnerable & Outdated Components",
-            "A07:2025": "Identification & Authentication Failures",
-            "A08:2025": "Software & Data Integrity Failures",
-            "A09:2025": "Security Logging & Monitoring Failures",
-            "A10:2025": "Server-Side Request Forgery",
-        }
-
-        result = {}
-        for cat, stats in category_stats.items():
-            total = stats["total"]
-            failed = stats["failed"]
-            result[cat] = {
-                "label": labels.get(cat, cat),
-                "total": total,
-                "failed": failed,
-                "fail_rate": round((failed / total * 100), 1) if total > 0 else 0.0,
-            }
-        return result
-
-
-    def simulate_with_fixes(self, fix_ids: list) -> dict:
-        """
-        Simulate the score/grade if the given check IDs were fixed to PASS.
-        Returns a dict with simulated score, grade, and attack path count.
-        """
-        fix_set = set(fix_ids)
-        patched_checks = []
-        for c in self.checks:
-            if c.id in fix_set and c.status != Status.PASS:
-                patched_checks.append(CheckResult(
-                    id=c.id, layer=c.layer, name=c.name,
-                    status=Status.PASS, severity=c.severity,
-                    details=f"[SIMULATED FIX] {c.details}",
-                ))
-            else:
-                patched_checks.append(c)
-
-        sim = ScanResult(target=self.target, mode=self.mode, checks=patched_checks)
-        sim_paths = sim.attack_paths()
-        return {
-            "fixed_ids": list(fix_set),
-            "simulated_score_percentage": sim.score_percentage,
-            "simulated_grade": sim.grade.value,
-            "simulated_attack_path_count": len(sim_paths),
-            "simulated_attack_paths": sim_paths,
-        }
-
-
-    def hardening_plan(self) -> list:
-        """
-        Build a prioritised hardening plan (DAY_1 / DAY_7 / DAY_30).
-        Delegates to planner.build_hardening_plan for scoring logic.
-        """
-        from sec_audit.planner import build_hardening_plan
-        return build_hardening_plan(self)
-
-
+ 
+ 
     def server_fingerprint(self) -> dict:
         """Extract version info from checks for fingerprint table."""
         # Safe fallback - uses getattr with defaults
@@ -610,7 +537,7 @@ class ScanResult:
                 entry["total"] += 1
                 if check.status != Status.PASS:
                     entry["failed"] += 1
-
+ 
         # OWASP Top 10:2025 Top 5 labels (from your screenshot)
         labels_2025 = {
             "A01:2025": "Broken Access Control",
@@ -624,12 +551,12 @@ class ScanResult:
             "A09:2025": "Security Logging & Alerting Failures",
             "A10:2025": "Mishandling of Exceptional Conditions",
         }
-
+ 
         # Add labels and calculate fail rates
         for cat, data in summary.items():
             data["label"] = labels_2025.get(cat, cat)
             data["fail_rate"] = round((data["failed"] / data["total"] * 100), 1) if data["total"] > 0 else 0.0
-
+ 
         return summary
     
     
@@ -642,8 +569,8 @@ class ScanResult:
             Severity.LOW: 1.0,
         }
         return mapping.get(severity, 1.0)
-
-
+ 
+ 
     def _effort_score(self, effort_str: str | None) -> float:
         """
         Map effort to a numeric cost.
@@ -662,13 +589,13 @@ class ScanResult:
     def hardening_plan(self) -> list[dict]:
         """
         Build a prioritised hardening plan.
-
+ 
         For each non-PASS check:
         - Look up effort and impact_weight from config (with sensible defaults)
         - Compute priority_score = (severity_score * impact_weight) / effort_score
         - Sort descending by priority_score
         - Bucket into DAY_1 / DAY_7 / DAY_30 buckets
-
+ 
         Returns a list of entries like:
         {
             "id": "...",
@@ -682,19 +609,19 @@ class ScanResult:
         }
         """
         plan_items = []
-
+ 
         for result in self.checks:
             if result.status == Status.PASS:
                 continue  # only plan fixes for WARN/FAIL/ERROR
-
+ 
             cfg = CHECK_INDEX.get(result.id, {})
             effort_str = cfg.get("effort")
             impact_weight = float(cfg.get("impact_weight", 1.0))
-
+ 
             sev_score = self._severity_score(result.severity)
             eff_score = self._effort_score(effort_str)
             priority_score = (sev_score * impact_weight) / eff_score
-
+ 
             plan_items.append({
                 "id": result.id,
                 "name": result.name,
@@ -704,19 +631,19 @@ class ScanResult:
                 "priority_score": round(priority_score, 2),
                 "recommendation": cfg.get("recommendation", ""),
             })
-
+ 
         # Sort by descending priority_score
         plan_items.sort(key=lambda i: i["priority_score"], reverse=True)
-
+ 
         # Bucket into Day 1 / Day 7 / Day 30
         total = len(plan_items)
         if total == 0:
             return []
-
+ 
         # Simple split: top 30% → DAY_1, next 40% → DAY_7, rest → DAY_30
         day1_cut = max(1, int(total * 0.3))
         day7_cut = max(day1_cut + 1, int(total * 0.7))
-
+ 
         for idx, item in enumerate(plan_items):
             if idx < day1_cut:
                 item["bucket"] = "DAY_1"
@@ -724,31 +651,33 @@ class ScanResult:
                 item["bucket"] = "DAY_7"
             else:
                 item["bucket"] = "DAY_30"
-
+ 
         return plan_items
     
     
     def simulate_with_fixes(self, fix_ids: list[str]) -> dict:
         """
         Simulate the effect of fixing a set of checks.
-
+ 
         Treat all checks whose id is in fix_ids as PASS (only for simulation),
         then recompute:
         - simulated_pass_rate
         - simulated_score_percentage
         - simulated_grade
         - simulated_attack_path_count
-
+ 
         Returns a small summary dict you can embed in reports.
         """
         if not fix_ids:
             return {
+                "fixed_ids": [],
                 "simulated_pass_rate": self.pass_rate,
                 "simulated_score_percentage": self.score_percentage,
                 "simulated_grade": self.grade.value,
                 "simulated_attack_path_count": self.attack_path_count,
+                "simulated_attack_paths": self.attack_paths(),
             }
-
+ 
         # Build a temporary list of CheckResult copies with simulated PASS for chosen IDs
         simulated_checks: list[CheckResult] = []
         for c in self.checks:
@@ -765,17 +694,19 @@ class ScanResult:
                 )
             else:
                 simulated_checks.append(c)
-
+ 
         # Create a temporary ScanResult for simulation
         sim_result = ScanResult(
             target=self.target,
             mode=self.mode,
             checks=simulated_checks,
         )
-
+ 
         return {
+            "fixed_ids": list(fix_ids),
             "simulated_pass_rate": sim_result.pass_rate,
             "simulated_score_percentage": sim_result.score_percentage,
             "simulated_grade": sim_result.grade.value,
             "simulated_attack_path_count": sim_result.attack_path_count,
+            "simulated_attack_paths": sim_result.attack_paths(),
         }

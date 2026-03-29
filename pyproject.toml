@@ -1,27 +1,65 @@
-"""
-Security Audit Framework - Python Project Metadata
-
-Modern Python project configuration using pyproject.toml standard.
-Defines package metadata, build system, and tool configurations.
-"""
-
-
+# StackSentry — Security Audit Framework
+# Project metadata and tool configuration
+ 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
+ 
 [project]
-name = "sec-audit-framework"
+name = "stacksentry"
 version = "1.0.0"
-description = "Automated web application security configuration assessment"
+description = "Automated web application security configuration assessment and remediation"
 authors = [{name = "Victor Chukwuemeka Onwuegbuchulem", email = "vio0264@my.londonmet.ac.uk"}]
 license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.10"
+ 
 dependencies = [
     "requests==2.31.0",
+    "urllib3>=1.21.1,<2.1",
     "docker==7.0.0",
     "paramiko==3.4.0",
     "PyYAML==6.0.1",
     "reportlab==4.2.2",
-    "argparse",
-    "pytest==7.4.0"
 ]
+ 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.11.0",
+]
+ 
+[project.scripts]
+stacksentry = "sec_audit.cli:main"
+ 
+[tool.hatch.build.targets.wheel]
+packages = ["sec_audit", "checks", "scanners", "reporting"]
+ 
+# ── Pytest configuration ──────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --strict-markers -W ignore::DeprecationWarning:nginxparser_eb -W ignore::cryptography.utils.CryptographyDeprecationWarning"
+filterwarnings = [
+    "ignore::DeprecationWarning:nginxparser_eb",
+    "ignore:TripleDES:cryptography.utils.CryptographyDeprecationWarning",
+    "ignore:urllib3.*:requests.packages.urllib3.exceptions.RequestsDependencyWarning",
+    "error::pytest.PytestUnraisableExceptionWarning",
+]
+markers = [
+    "slow: marks tests as slow (deselect with -m not slow)",
+    "integration: marks tests that require real Docker or SSH targets",
+]
+ 
+# ── Coverage configuration ────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["checks", "sec_audit", "scanners", "reporting"]
+omit = ["tests/*", "*/migrations/*"]
+ 
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 70
