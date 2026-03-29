@@ -177,17 +177,8 @@ class ScanResult:
                                   if c.status != Status.PASS and c.severity == Severity.HIGH)
         }
         
-    def layer_summary(self) -> Dict[str, Dict[str, Any]]:
-        """Breakdown by layer (app, webserver, container, host)."""
-        layers = {}
-        for check in self.checks:
-            if check.layer not in layers:
-                layers[check.layer] = {"total": 0, "passed": 0}
-            layers[check.layer]["total"] += 1
-            if check.status == Status.PASS:
-                layers[check.layer]["passed"] += 1
-        return layers
-    
+    # layer_summary defined below with full pass-rate and color logic
+
     
     def detect_stack(self) -> str:
         """
@@ -508,6 +499,88 @@ class ScanResult:
             }
             for result in priority
         ]
+
+
+    def owasp_summary(self) -> Dict[str, Dict]:
+        """
+        Map checks to OWASP Top 10:2025 categories using config.py owasp tags.
+        Returns per-category counts of total, failed, and fail_rate.
+        """
+        from sec_audit.config import CHECKS as _CHECKS
+        owasp_index: Dict[str, list] = {
+            c["id"]: c.get("owasp", []) for c in _CHECKS
+        }
+        category_stats: Dict[str, Dict] = {}
+        for check in self.checks:
+            categories = owasp_index.get(check.id, [])
+            for cat in categories:
+                if cat not in category_stats:
+                    category_stats[cat] = {"total": 0, "failed": 0}
+                category_stats[cat]["total"] += 1
+                if check.status != Status.PASS:
+                    category_stats[cat]["failed"] += 1
+
+        labels = {
+            "A01:2025": "Broken Access Control",
+            "A02:2025": "Cryptographic Failures",
+            "A03:2025": "Injection",
+            "A04:2025": "Insecure Design",
+            "A05:2025": "Security Misconfiguration",
+            "A06:2025": "Vulnerable & Outdated Components",
+            "A07:2025": "Identification & Authentication Failures",
+            "A08:2025": "Software & Data Integrity Failures",
+            "A09:2025": "Security Logging & Monitoring Failures",
+            "A10:2025": "Server-Side Request Forgery",
+        }
+
+        result = {}
+        for cat, stats in category_stats.items():
+            total = stats["total"]
+            failed = stats["failed"]
+            result[cat] = {
+                "label": labels.get(cat, cat),
+                "total": total,
+                "failed": failed,
+                "fail_rate": round((failed / total * 100), 1) if total > 0 else 0.0,
+            }
+        return result
+
+
+    def simulate_with_fixes(self, fix_ids: list) -> dict:
+        """
+        Simulate the score/grade if the given check IDs were fixed to PASS.
+        Returns a dict with simulated score, grade, and attack path count.
+        """
+        fix_set = set(fix_ids)
+        patched_checks = []
+        for c in self.checks:
+            if c.id in fix_set and c.status != Status.PASS:
+                patched_checks.append(CheckResult(
+                    id=c.id, layer=c.layer, name=c.name,
+                    status=Status.PASS, severity=c.severity,
+                    details=f"[SIMULATED FIX] {c.details}",
+                ))
+            else:
+                patched_checks.append(c)
+
+        sim = ScanResult(target=self.target, mode=self.mode, checks=patched_checks)
+        sim_paths = sim.attack_paths()
+        return {
+            "fixed_ids": list(fix_set),
+            "simulated_score_percentage": sim.score_percentage,
+            "simulated_grade": sim.grade.value,
+            "simulated_attack_path_count": len(sim_paths),
+            "simulated_attack_paths": sim_paths,
+        }
+
+
+    def hardening_plan(self) -> list:
+        """
+        Build a prioritised hardening plan (DAY_1 / DAY_7 / DAY_30).
+        Delegates to planner.build_hardening_plan for scoring logic.
+        """
+        from sec_audit.planner import build_hardening_plan
+        return build_hardening_plan(self)
 
 
     def server_fingerprint(self) -> dict:

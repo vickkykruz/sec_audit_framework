@@ -264,29 +264,32 @@ def check_nginx_hsts_config(path: Optional[str] = None, verbose: bool = False) -
     if not path:
         if verbose:
             print(f"[DEBUG] WS-CONF-HSTS: nginx.conf path not provided;")
-        status = Status.WARN
-        details = "nginx.conf path not provided; cannot statically verify HSTS."
+        return CheckResult(
+            id=meta["id"], layer=meta["layer"], name=meta["name"],
+            status=Status.WARN, severity=Severity[meta["severity"]],
+            details="nginx.conf path not provided; cannot statically verify HSTS.",
+        )
 
     try:
         scanner = NginxConfigScanner(path, verbose)
         scanner.load()
         has_hsts = scanner.has_security_header("Strict-Transport-Security")
-        
+
         if verbose:
             print(f"[DEBUG] WS-CONF-HSTS: has_hsts={has_hsts}")
-            
-        if has_hsts: 
+
+        if has_hsts:
             status = Status.PASS
             details = "Strict-Transport-Security header is configured in nginx.conf."
-            
-        status = Status.WARN
-        details = "Strict-Transport-Security not found in nginx.conf; add HSTS at server or http level."
+        else:
+            status = Status.WARN
+            details = "Strict-Transport-Security not found in nginx.conf; add HSTS at server or http level."
 
     except Exception as e:
         if verbose:
             print(f"[DEBUG] WS-CONF-HSTS: exception {e!r}")
         status = Status.WARN
-        details = "Error parsing nginx.conf: {e}"
+        details = f"Error parsing nginx.conf: {e}"
     
     return CheckResult(
         id=meta["id"], layer=meta["layer"], name=meta["name"],
@@ -303,18 +306,22 @@ def check_nginx_csp_config(path: Optional[str] = None, verbose: bool = False) ->
     if not path:
         if verbose:
             print("[DEBUG] WS-CONF-CSP: nginx.conf path not provided")
-        status = Status.WARN
-        details = "nginx.conf path not provided; cannot statically verify CSP."
+        return CheckResult(
+            id=meta["id"], layer=meta["layer"], name=meta["name"],
+            status=Status.WARN, severity=Severity[meta["severity"]],
+            details="nginx.conf path not provided; cannot statically verify CSP.",
+        )
 
     try:
         scanner = NginxConfigScanner(path, verbose)
+        scanner.load()
         if scanner.has_csp():
             status = Status.PASS
             details = "Content-Security-Policy is configured in nginx.conf."
-        
-        status = Status.WARN
-        details = "Content-Security-Policy not found in nginx.conf; define a CSP header for stricter frontend security."    
-        
+        else:
+            status = Status.WARN
+            details = "Content-Security-Policy not found in nginx.conf; define a CSP header for stricter frontend security."
+
     except Exception as e:
         if verbose:
             print(f"[DEBUG] WS-CONF-CSP: exception {e!r}")

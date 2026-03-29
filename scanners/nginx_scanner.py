@@ -49,4 +49,4 @@ class NginxConfigScanner:
     
     def has_csp(self) -> bool:
         """Check for a Content-Security-Policy header."""
-        return self.has_header("Content-Security-Policy")
+        return self.has_security_header("Content-Security-Policy")
