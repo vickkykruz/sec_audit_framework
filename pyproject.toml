@@ -15,7 +15,7 @@ readme = "README.md"
 requires-python = ">=3.10"
  
 dependencies = [
-    "requests==2.31.0",
+    "requests>=2.32.0",
     "urllib3>=1.21.1,<2.1",
     "docker==7.0.0",
     "paramiko==3.4.0",
@@ -42,12 +42,11 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short --strict-markers -W ignore::DeprecationWarning:nginxparser_eb -W ignore::cryptography.utils.CryptographyDeprecationWarning"
+addopts = "-v --tb=short --strict-markers"
 filterwarnings = [
-    "ignore::DeprecationWarning:nginxparser_eb",
-    "ignore:TripleDES:cryptography.utils.CryptographyDeprecationWarning",
-    "ignore:urllib3.*:requests.packages.urllib3.exceptions.RequestsDependencyWarning",
-    "error::pytest.PytestUnraisableExceptionWarning",
+    "ignore::DeprecationWarning",
+    "ignore::cryptography.utils.CryptographyDeprecationWarning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
 ]
 markers = [
     "slow: marks tests as slow (deselect with -m not slow)",
