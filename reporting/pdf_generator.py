@@ -21,6 +21,8 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.platypus import BaseDocTemplate, Frame, PageTemplate
 from sec_audit.results import ScanResult
+from sec_audit.planner import build_hardening_plan
+from sec_audit.narratives import generate_owasp_narrative
 from sec_audit.baseline import HARDENED_FLASK_BASELINE
 from typing import List
 import datetime
@@ -176,7 +178,7 @@ def _grade_badge(scan_result: ScanResult, styles) -> Table:
  
     data = [
         [
-            Paragraph(f'<font size="36"><b>{grade}</b></font>', ParagraphStyle(
+            Paragraph(f'<font size="36"><b>{grade.value}</b></font>', ParagraphStyle(
                 "grade_big", fontName="Helvetica-Bold", fontSize=36,
                 textColor=colors.white, alignment=TA_CENTER,
             )),
@@ -209,15 +211,13 @@ def _grade_badge(scan_result: ScanResult, styles) -> Table:
  
  
 # ── Main generate function ────────────────────────────────────────────────────
-def generate_pdf(scan_result: ScanResult, output_path: str, profile: str = "generic", drift_report=None) -> None:
+def generate_pdf(scan_result: ScanResult, output_path: str, profile: str = "generic", drift_report=None, simulation_result=None) -> None:
     """
     Generate a professional PDF security audit report from ScanResult.
  
     Args:
-        scan_result:  Complete scan results with checks and scoring
-        output_path:  Path to save PDF (e.g., "security_report.pdf")
-        profile:      Role-based narrative profile (default: generic)
-        drift_report: Optional DriftReport for posture history section
+        scan_result: Complete scan results with checks and scoring
+        output_path: Path to save PDF (e.g., "security_report.pdf")
     """
     styles = _build_styles()
  
@@ -272,8 +272,8 @@ def generate_pdf(scan_result: ScanResult, output_path: str, profile: str = "gene
     # ── EXECUTIVE SUMMARY ─────────────────────────────────────────────────────
     story.extend(_section("Executive Summary", styles))
     story.append(_grade_badge(scan_result, styles))
-    story.append(Spacer(1, 12))
- 
+    story.append(Spacer(1, 14))
+    
     # ── AI NARRATIVE ──────────────────────────────────────────────────────────
     narrative_label_style = ParagraphStyle(
         "narrative_label", fontName="Helvetica-Bold", fontSize=8,
@@ -283,7 +283,15 @@ def generate_pdf(scan_result: ScanResult, output_path: str, profile: str = "gene
         "narrative_body", fontName="Helvetica", fontSize=9,
         textColor=TEXT_DARK, leading=14, wordWrap="CJK",
     )
-    narrative_text = scan_result.executive_narrative()
+    # Use profile-aware narrative if a specific profile was requested
+    if profile and profile != "generic":
+        try:
+            from sec_audit.narratives import generate_owasp_narrative
+            narrative_text = generate_owasp_narrative(scan_result, profile)
+        except Exception:
+            narrative_text = scan_result.executive_narrative()
+    else:
+        narrative_text = scan_result.executive_narrative()
     narrative_inner = Table(
         [
             [Paragraph("AI-GENERATED ASSESSMENT", narrative_label_style)],
@@ -309,7 +317,6 @@ def generate_pdf(scan_result: ScanResult, output_path: str, profile: str = "gene
     ]))
     story.append(narrative_card)
     story.append(Spacer(1, 14))
- 
  
     # ── ATTACK SURFACE HEATMAP ────────────────────────────────────────────────
     story.extend(_section("Attack Surface Heatmap", styles))
@@ -390,6 +397,7 @@ def generate_pdf(scan_result: ScanResult, output_path: str, profile: str = "gene
     story.append(heatmap_table)
     story.append(Spacer(1, 14))
  
+    
     # ── TOP 5 PRIORITY FIXES ────────────────────────────────────────────────────
     story.extend(_section("Top 5 Priority Fixes", styles))
  
@@ -572,12 +580,97 @@ def generate_pdf(scan_result: ScanResult, output_path: str, profile: str = "gene
         ))
  
     story.append(Spacer(1, 14))
+    
+    # ── PRIORITISED HARDENING PLAN ────────────────────────────────────────────
+    story.extend(_section("Prioritised Hardening Plan (Day 1 / Day 7 / Day 30)", styles))
  
+    # Get plan items: either via planner module or ScanResult method
+    try:
+        plan_items = build_hardening_plan(scan_result)  # if using planner.py
+        # plan_items = scan_result.hardening_plan()     # if using method on ScanResult
+    except Exception:
+        plan_items = []
+ 
+    if not plan_items:
+        story.append(
+            Paragraph(
+                "No outstanding issues requiring a hardening plan. All checks are passing.",
+                styles["body"],
+            )
+        )
+        story.append(Spacer(1, 14))
+    else:
+        # Limit to e.g. top 12 entries to keep table readable
+        plan_subset = plan_items[:12]
+ 
+        # Header row
+        hp_hdr_style = ParagraphStyle(
+            "hp_hdr", fontName="Helvetica-Bold", fontSize=8,
+            textColor=colors.white, alignment=TA_CENTER,
+        )
+        hp_cell = ParagraphStyle(
+            "hp_cell", fontName="Helvetica", fontSize=8,
+            textColor=TEXT_DARK, leading=11, wordWrap="CJK",
+        )
+ 
+        hp_rows = [[
+            Paragraph("Bucket", hp_hdr_style),
+            Paragraph("Check ID", hp_hdr_style),
+            Paragraph("Layer", hp_hdr_style),
+            Paragraph("Severity", hp_hdr_style),
+            Paragraph("Priority", hp_hdr_style),
+            Paragraph("Recommended Fix", hp_hdr_style),
+        ]]
+ 
+        hp_styles = [
+            ("BACKGROUND", (0, 0), (-1, 0), STEEL),
+            ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("GRID", (0, 0), (-1, -1), 0.5, RULE_GREY),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("FONTSIZE", (0, 1), (-1, -1), 8),
+        ]
+ 
+        for idx, item in enumerate(plan_subset, 1):
+            bucket_label = {
+                "DAY_1": "Day 1 (Immediate)",
+                "DAY_7": "Day 7 (Short-term)",
+                "DAY_30": "Day 30 (Medium-term)",
+            }.get(item.get("bucket", ""), item.get("bucket", ""))
+ 
+            # Alternate row backgrounds
+            if idx % 2 == 0:
+                hp_styles.append(("BACKGROUND", (0, idx), (-1, idx), ROW_ALT))
+ 
+            hp_rows.append([
+                Paragraph(bucket_label, hp_cell),
+                Paragraph(item["id"], hp_cell),
+                Paragraph(item["layer"], hp_cell),
+                Paragraph(item["severity"], hp_cell),
+                Paragraph(str(item["priority_score"]), hp_cell),
+                Paragraph(item["recommendation"] or "-", hp_cell),
+            ])
+ 
+        hp_table = Table(
+            hp_rows,
+            colWidths=[30*mm, 25*mm, 20*mm, 22*mm, 20*mm, PAGE_W - 2*MARGIN - 117*mm],
+            repeatRows=1,
+        )
+        hp_table.setStyle(TableStyle(hp_styles))
+        story.append(hp_table)
+        story.append(Spacer(1, 14))
+    
     # ── OWASP TOP 5 RISK SUMMARY
     story.extend(_section("OWASP Top 5 Risk Summary (2025)", styles))
  
     owasp_data = scan_result.owasp_summary()
-    top5_order = ["A01:2025", "A02:2025", "A03:2025", "A04:2025", "A05:2025"]
+    top10_order = [
+        "A01:2025", "A02:2025", "A03:2025", "A04:2025", "A05:2025",
+        "A06:2025", "A07:2025", "A08:2025", "A09:2025", "A10:2025",
+    ]
  
     _ow_th = ParagraphStyle("owasp_th", fontName="Helvetica-Bold", fontSize=9,
                             textColor=colors.white, alignment=TA_LEFT, leading=12)
@@ -622,7 +715,7 @@ def generate_pdf(scan_result: ScanResult, output_path: str, profile: str = "gene
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
     ]
  
-    populated = [(cat, owasp_data.get(cat)) for cat in top5_order if owasp_data.get(cat)]
+    populated = [(cat, owasp_data.get(cat)) for cat in top10_order if owasp_data.get(cat)]
  
     if populated:
         for row_idx, (cat, data) in enumerate(populated, 1):
@@ -648,9 +741,90 @@ def generate_pdf(scan_result: ScanResult, output_path: str, profile: str = "gene
     owasp_table = Table(owasp_rows, colWidths=[100*mm, 32*mm, 25*mm])
     owasp_table.setStyle(TableStyle(owasp_row_styles))
     story.append(owasp_table)
+    story.append(Spacer(1, 10))
+    
+    # ── OWASP CONTEXTUAL NARRATIVE ───────────────────────────────────────────
+    owasp_narrative = generate_owasp_narrative(scan_result, profile)
+ 
+    narrative_style = ParagraphStyle(
+        "owasp_narr",
+        fontName="Helvetica",
+        fontSize=9,
+        textColor=TEXT_DARK,
+        leading=14,
+        wordWrap="CJK",
+    )
+ 
+    owasp_narr_card = Table(
+        [[Paragraph(owasp_narrative, narrative_style)]],
+        colWidths=[PAGE_W - 2 * MARGIN],
+    )
+    owasp_narr_card.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#E8EAF6")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ("LINEBEFORE", (0, 0), (0, -1), 4, colors.HexColor("#5C6BC0")),
+        ("BOX", (0, 0), (-1, -1), 0.5, RULE_GREY),
+    ]))
+    story.append(owasp_narr_card)
     story.append(Spacer(1, 14))
  
+    
+    # ── 30-DAY HARDENING ROADMAP SIMULATION ─────────────────────────────────────
+    story.extend(_section("30-Day Hardening Roadmap Simulation", styles))
  
+    day1_items = [i for i in plan_items if i.get("bucket") == "DAY_1"]
+    day7_items = [i for i in plan_items if i.get("bucket") == "DAY_7"]
+    day30_items = [i for i in plan_items if i.get("bucket") == "DAY_30"]
+ 
+    # Run simulations
+    sim_day1 = scan_result.simulate_with_fixes([i["id"] for i in day1_items]) if day1_items else None
+    sim_day7 = scan_result.simulate_with_fixes([i["id"] for i in day1_items + day7_items]) if day1_items or day7_items else None
+    sim_day30 = scan_result.simulate_with_fixes([i["id"] for i in plan_items]) if plan_items else None
+ 
+    # Build comprehensive table
+    sim_data = [
+        ["Phase", "Fixes", "Grade", "Score", "Attack Paths"],
+        ["Current", "0", scan_result.grade.value, f"{scan_result.score_percentage}%", str(scan_result.attack_path_count)],
+    ]
+ 
+    if day1_items:
+        sim_data.append(["Day 1", f"{len(day1_items)}", sim_day1["simulated_grade"], f"{sim_day1['simulated_score_percentage']}%", str(sim_day1["simulated_attack_path_count"])])
+ 
+    if day7_items and sim_day7:
+        sim_data.append(["Day 7", f"{len(day1_items + day7_items)}", sim_day7["simulated_grade"], f"{sim_day7['simulated_score_percentage']}%", str(sim_day7["simulated_attack_path_count"])])
+ 
+    if day30_items and sim_day30:
+        sim_data.append(["Day 30", f"{len(plan_items)}", sim_day30["simulated_grade"], f"{sim_day30['simulated_score_percentage']}%", str(sim_day30["simulated_attack_path_count"])])
+ 
+    # Styled roadmap table
+    roadmap_table = Table(sim_data, colWidths=[25*mm, 20*mm, 25*mm, 25*mm, 35*mm])
+    roadmap_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), STEEL),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.8, colors.HexColor("#B0BEC5")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, ROW_ALT]),
+        
+        # Phase column colors
+        ("BACKGROUND", (0, 1), (0, 1), colors.HexColor("#FFCDD2")),  # Day 1: Light red
+        ("FONTNAME", (0, 1), (0, 1), "Helvetica-Bold"),
+        ("BACKGROUND", (0, 2), (0, 2), colors.HexColor("#FFF3E0")),  # Day 7: Light orange  
+        ("FONTNAME", (0, 2), (0, 2), "Helvetica-Bold"),
+        ("BACKGROUND", (0, 3), (0, 3), colors.HexColor("#E8F5E8")),  # Day 30: Light green
+    ]))
+ 
+    story.append(roadmap_table)
+    story.append(Spacer(1, 14))
+ 
+    
     # ── CONFIGURATION DRIFT ───────────────────────────────────────────────────
     story.extend(_section("Configuration Drift vs Hardened Flask LMS", styles))
     drift = scan_result.compare_to_baseline(HARDENED_FLASK_BASELINE)
@@ -662,7 +836,7 @@ def generate_pdf(scan_result: ScanResult, output_path: str, profile: str = "gene
     _dv = ParagraphStyle("drift_val", fontName="Helvetica", fontSize=9, textColor=TEXT_DARK, leading=13, wordWrap="CJK")
  
     drift_data = [
-        [Paragraph("Grade Delta", _dk),    Paragraph(str(drift["grade_delta"]), _dv)],
+        [Paragraph("Grade Delta", _dk),    Paragraph(str(drift["grade_delta"]).replace("Grade.", ""), _dv)],
         [Paragraph("Pass Delta", _dk),     Paragraph(f"{drift['pass_delta']} checks vs baseline", _dv)],
         [Paragraph("Improved Checks", _dk), Paragraph(improved, _dv)],
         [Paragraph("Regressed Checks", _dk), Paragraph(regressed, _dv)],
@@ -728,7 +902,7 @@ def generate_pdf(scan_result: ScanResult, output_path: str, profile: str = "gene
                     f'<font color="{status_fg.hexval()}"><b>{status_label}</b></font>',
                     ParagraphStyle("status_cell", fontSize=8, alignment=TA_CENTER, leading=11, wordWrap="CJK"),
                 ),
-                Paragraph(str(check.severity), cell_center),
+                Paragraph(str(check.severity.value), cell_center),
                 Paragraph(check.details, cell_style),
             ])
             row_styles.append(("BACKGROUND", (2, row_idx), (2, row_idx), status_bg))
@@ -789,7 +963,7 @@ def generate_pdf(scan_result: ScanResult, output_path: str, profile: str = "gene
         ))
     else:
         story.append(Paragraph("No multi-layer attack paths detected.", styles["body"]))
- 
+        
     # ── RECOMMENDED NEXT ACTIONS ────────────────────────────────────────────────
     story.append(Spacer(1, 14))
     story.extend(_section("Recommended Next Actions", styles))
@@ -846,28 +1020,108 @@ def generate_pdf(scan_result: ScanResult, output_path: str, profile: str = "gene
             no_rec_style,
         ))
  
-    # ── POSTURE HISTORY (drift report) ───────────────────────────────────────
+    # ── WHAT-IF SIMULATION RESULTS ───────────────────────────────────────────
+    if simulation_result:
+        story.append(Spacer(1, 14))
+        story.extend(_section("What-If Simulation Results", styles))
+ 
+        _sim_label = ParagraphStyle("sim_lbl", fontName="Helvetica-Bold", fontSize=9,
+                                    textColor=TEXT_DARK, leading=13, wordWrap="CJK")
+        _sim_val   = ParagraphStyle("sim_val", fontName="Helvetica", fontSize=9,
+                                    textColor=TEXT_DARK, leading=13, wordWrap="CJK")
+        _sim_pill  = ParagraphStyle("sim_pill", fontName="Helvetica-Bold", fontSize=8,
+                                    textColor=colors.white, alignment=TA_CENTER, leading=11)
+ 
+        fixed_ids   = simulation_result.get("fixed_ids", [])
+        sim_grade   = simulation_result.get("simulated_grade", "?")
+        sim_score   = simulation_result.get("simulated_score_percentage", 0)
+        sim_paths   = simulation_result.get("simulated_attack_path_count", 0)
+        cur_grade   = scan_result.grade.value
+        cur_score   = scan_result.score_percentage
+        cur_paths   = scan_result.attack_path_count
+ 
+        # Grade improvement pill
+        grade_improved = sim_grade != cur_grade
+        sim_grade_color = _grade_color(sim_grade)
+ 
+        sim_grade_pill = Table(
+            [[Paragraph(sim_grade, _sim_pill)]],
+            colWidths=[20*mm],
+        )
+        sim_grade_pill.setStyle(TableStyle([
+            ("BACKGROUND",    (0, 0), (-1, -1), sim_grade_color),
+            ("TOPPADDING",    (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
+        ]))
+ 
+        # Score delta
+        score_delta = sim_score - cur_score
+        delta_sign  = "+" if score_delta >= 0 else ""
+ 
+        # Path reduction indicator
+        paths_delta = sim_paths - cur_paths
+        paths_text  = (f"{cur_paths} → {sim_paths}"
+                       + (" ✓ eliminated" if sim_paths == 0 and cur_paths > 0 else
+                          f" ({paths_delta:+d})" if paths_delta != 0 else " (unchanged)"))
+ 
+        sim_data = [
+            [Paragraph("Checks simulated as fixed", _sim_label),
+             Paragraph(", ".join(fixed_ids), _sim_val)],
+            [Paragraph("Number of fixes applied",   _sim_label),
+             Paragraph(str(len(fixed_ids)), _sim_val)],
+            [Paragraph("Grade (current → simulated)", _sim_label),
+             Table([[
+                 Paragraph(f"{cur_grade}  →", ParagraphStyle(
+                     "cg", fontName="Helvetica-Bold", fontSize=11,
+                     textColor=_grade_color(cur_grade), alignment=TA_CENTER)),
+                 sim_grade_pill,
+             ]], colWidths=[25*mm, 22*mm])],
+            [Paragraph("Score (current → simulated)", _sim_label),
+             Paragraph(f"{cur_score:.1f}%  →  {sim_score:.1f}%  ({delta_sign}{score_delta:.1f}%)", _sim_val)],
+            [Paragraph("Attack paths",               _sim_label),
+             Paragraph(paths_text, _sim_val)],
+        ]
+ 
+        sim_table = Table(sim_data, colWidths=[65*mm, PAGE_W - 2*MARGIN - 65*mm])
+        sim_table.setStyle(TableStyle([
+            ("GRID",           (0, 0), (-1, -1), 0.5, RULE_GREY),
+            ("TOPPADDING",     (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING",  (0, 0), (-1, -1), 8),
+            ("LEFTPADDING",    (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING",   (0, 0), (-1, -1), 6),
+            ("VALIGN",         (0, 0), (-1, -1), "MIDDLE"),
+            ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, ROW_ALT]),
+        ]))
+        story.append(sim_table)
+        story.append(Spacer(1, 6))
+        story.append(Paragraph(
+            "<b>Note:</b> This simulation assumes all listed checks are remediated "
+            "and re-evaluated as PASS. It does not verify that the fixes have been applied.",
+            ParagraphStyle("sim_note", fontName="Helvetica", fontSize=8,
+                           textColor=TEXT_MUTED, leading=12),
+        ))
+ 
+    # ── SECURITY POSTURE HISTORY (drift vs previous scan) ──────────────────────
     if drift_report and not drift_report.is_first_scan:
         story.append(Spacer(1, 14))
         story.extend(_section("Security Posture History", styles))
  
-        _drift_key = ParagraphStyle("dk", fontName="Helvetica-Bold", fontSize=9,
-                                    textColor=TEXT_DARK, leading=13, wordWrap="CJK")
-        _drift_val = ParagraphStyle("dv", fontName="Helvetica", fontSize=9,
-                                    textColor=TEXT_DARK, leading=13, wordWrap="CJK")
+        _dk2 = ParagraphStyle("dk2", fontName="Helvetica-Bold", fontSize=9,
+                              textColor=TEXT_DARK, leading=13, wordWrap="CJK")
+        _dv2 = ParagraphStyle("dv2", fontName="Helvetica", fontSize=9,
+                              textColor=TEXT_DARK, leading=13, wordWrap="CJK")
  
-        # Direction pill
-        direction_colors = {
-            "improved":  PASS_GREEN,
-            "regressed": FAIL_RED,
-            "stable":    STEEL,
-        }
+        direction_colors = {"improved": PASS_GREEN, "regressed": FAIL_RED, "stable": STEEL}
         pill_color = direction_colors.get(drift_report.grade_direction, STEEL)
-        pill_label = drift_report.grade_direction.upper()
-        _pill_s = ParagraphStyle("dp", fontName="Helvetica-Bold", fontSize=8,
-                                 textColor=colors.white, alignment=TA_CENTER)
-        pill = Table([[Paragraph(pill_label, _pill_s)]], colWidths=[30*mm])
-        pill.setStyle(TableStyle([
+        _pill_s2 = ParagraphStyle("dp2", fontName="Helvetica-Bold", fontSize=8,
+                                  textColor=colors.white, alignment=TA_CENTER)
+        trend_pill = Table(
+            [[Paragraph(drift_report.grade_direction.upper(), _pill_s2)]],
+            colWidths=[30*mm],
+        )
+        trend_pill.setStyle(TableStyle([
             ("BACKGROUND",    (0, 0), (-1, -1), pill_color),
             ("TOPPADDING",    (0, 0), (-1, -1), 4),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
@@ -876,49 +1130,56 @@ def generate_pdf(scan_result: ScanResult, output_path: str, profile: str = "gene
         ]))
  
         delta_sign = "+" if drift_report.score_delta >= 0 else ""
-        drift_summary_data = [
-            [Paragraph("Trend",             _drift_key), pill],
-            [Paragraph("Grade",             _drift_key),
+        history_data = [
+            [Paragraph("Trend",               _dk2), trend_pill],
+            [Paragraph("Grade change",         _dk2),
              Paragraph(f"{drift_report.grade_then} → {drift_report.grade_now}  "
-                       f"({delta_sign}{drift_report.score_delta:.1f}%)", _drift_val)],
-            [Paragraph("Last scan",         _drift_key),
-             Paragraph(drift_report.baseline_scanned_at[:19].replace("T", " "), _drift_val)],
-            [Paragraph("Elapsed",           _drift_key),
-             Paragraph(f"{drift_report.elapsed_days:.1f} days", _drift_val)],
-            [Paragraph("Regressions",       _drift_key),
-             Paragraph(", ".join(drift_report.regressions) or "None", _drift_val)],
-            [Paragraph("Improvements",      _drift_key),
-             Paragraph(", ".join(drift_report.improvements) or "None", _drift_val)],
-            [Paragraph("Persistent failures", _drift_key),
-             Paragraph(", ".join(drift_report.stable_failures[:5]) +
-                       (f" (+{len(drift_report.stable_failures)-5} more)"
-                        if len(drift_report.stable_failures) > 5 else "") or "None",
-                       _drift_val)],
-            [Paragraph("Summary",           _drift_key),
-             Paragraph(drift_report.summary_line, _drift_val)],
+                       f"({delta_sign}{drift_report.score_delta:.1f}%)", _dv2)],
+            [Paragraph("Previous scan",        _dk2),
+             Paragraph(drift_report.baseline_scanned_at[:19].replace("T", " "), _dv2)],
+            [Paragraph("Time elapsed",         _dk2),
+             Paragraph(f"{drift_report.elapsed_days:.1f} day(s)", _dv2)],
+            [Paragraph("Regressions",          _dk2),
+             Paragraph(", ".join(drift_report.regressions) or "None", _dv2)],
+            [Paragraph("Improvements",         _dk2),
+             Paragraph(", ".join(drift_report.improvements) or "None", _dv2)],
+            [Paragraph("Persistent failures",  _dk2),
+             Paragraph(
+                 ", ".join(drift_report.stable_failures[:5]) +
+                 (f" (+{len(drift_report.stable_failures)-5} more)"
+                  if len(drift_report.stable_failures) > 5 else "") or "None",
+                 _dv2,
+             )],
+            [Paragraph("Summary",              _dk2),
+             Paragraph(drift_report.summary_line, _dv2)],
         ]
  
-        drift_table = Table(drift_summary_data,
-                            colWidths=[45*mm, PAGE_W - 2*MARGIN - 45*mm])
-        drift_table.setStyle(TableStyle([
-            ("GRID",          (0, 0), (-1, -1), 0.5, RULE_GREY),
-            ("TOPPADDING",    (0, 0), (-1, -1), 7),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-            ("LEFTPADDING",   (0, 0), (-1, -1), 6),
-            ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
-            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        history_table = Table(history_data,
+                              colWidths=[45*mm, PAGE_W - 2*MARGIN - 45*mm])
+        history_table.setStyle(TableStyle([
+            ("GRID",           (0, 0), (-1, -1), 0.5, RULE_GREY),
+            ("TOPPADDING",     (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING",  (0, 0), (-1, -1), 7),
+            ("LEFTPADDING",    (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING",   (0, 0), (-1, -1), 6),
+            ("VALIGN",         (0, 0), (-1, -1), "MIDDLE"),
             ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, ROW_ALT]),
         ]))
-        story.append(drift_table)
+        story.append(history_table)
+        story.append(Spacer(1, 14))
  
     # ── SERVER FINGERPRINT ────────────────────────────────────────────────────
     story.append(Spacer(1, 14))
     story.extend(_section("Server Fingerprint", styles))
+    
+    versions = scan_result.server_fingerprint()
  
-    fp_data = [
-        ["Detected Stack", scan_result.stack_fingerprint],
-        ["Inference Method", "HTTP headers, framework behaviours, container/host findings"],
-    ]
+    fp_data = []
+    for key, value in versions.items():
+        label = {"os": "OS", "docker": "Docker", "webserver": "Web Server", "app": "App"}.get(key, key.title())
+        bg_color = LIGHT_GREEN if value != "N/A" else LIGHT_AMBER
+        fp_data.append([label, value])
+    
     fp_table = Table(fp_data, colWidths=[50*mm, PAGE_W - 2*MARGIN - 50*mm])
     fp_table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
@@ -926,12 +1187,11 @@ def generate_pdf(scan_result: ScanResult, output_path: str, profile: str = "gene
         ("GRID", (0, 0), (-1, -1), 0.5, RULE_GREY),
         ("TOPPADDING", (0, 0), (-1, -1), 6),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, ROW_ALT]),
+        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [bg_color, ROW_ALT]),
         ("TEXTCOLOR", (0, 0), (-1, -1), TEXT_DARK),
     ]))
     story.append(fp_table)
  
     # ── BUILD ─────────────────────────────────────────────────────────────────
     doc.build(story, onFirstPage=on_first_page, onLaterPages=on_later_pages)
-    print(f"PDF report generated: {output_path}")
- 
+    # PDF generation complete

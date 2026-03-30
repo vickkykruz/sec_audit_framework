@@ -518,7 +518,7 @@ def run_from_args(args: SimpleNamespace) -> None:
  
     # ───────── SCORING ─────────
     print("📊 OVERALL SCORE:")
-    print(f"  Grade: {scan_result.grade} ({scan_result.score_percentage}%)")
+    print(f"  Grade: {scan_result.grade.value} ({scan_result.score_percentage}%)")
     print(f"  Attack Paths: {scan_result.attack_path_count}")
     print(f"  Max Risk Level: {scan_result.highest_attack_risk}")
     summary_data = scan_result.summary()
@@ -529,7 +529,7 @@ def run_from_args(args: SimpleNamespace) -> None:
     
     drift = scan_result.compare_to_baseline(HARDENED_FLASK_BASELINE)
     print("🔁 CONFIGURATION DRIFT (vs Hardened Flask LMS):")
-    print(f"  Grade: {drift['grade_delta']}")
+    print(f"  Grade: {drift['grade_delta'].replace('Grade.', '')}")
     print(f"  Pass delta: {drift['pass_delta']} checks vs baseline")
     print(f"  Improved checks: {len(drift['improved_checks'])}")
     print(f"  Regressed checks: {len(drift['regressed_checks'])}")
@@ -566,12 +566,14 @@ def run_from_args(args: SimpleNamespace) -> None:
         print()
         
     # ───────── WHAT-IF SIMULATION (optional) ─────────
+    sim_result = None
     if args.simulate:
         fix_ids = [c.strip() for c in args.simulate.split(",") if c.strip()]
         if args.verbose:
             vprint(args.verbose, f"Running what-if simulation for fixes: {fix_ids!r}")
  
         sim = scan_result.simulate_with_fixes(fix_ids)
+        sim_result = sim  # captured for PDF report
  
         print("🧪 WHAT-IF SIMULATION SUMMARY:")
         print(f"  Fixing: {', '.join(fix_ids)}")
@@ -598,7 +600,7 @@ def run_from_args(args: SimpleNamespace) -> None:
     # ───────── PDF EXPORT ─────────
     if args.output:
         try:
-            generate_pdf(scan_result, args.output, profile=args.profile, drift_report=drift_report)
+            generate_pdf(scan_result, args.output, profile=args.profile, drift_report=drift_report, simulation_result=sim_result)
             print(f"📄 PDF report generated: {args.output}")
         except Exception as e:
             print(f"❌ Failed to generate PDF: {e!r}")
