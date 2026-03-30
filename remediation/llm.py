@@ -13,6 +13,7 @@ The response is structured JSON that the generator parses into a PatchResult.
 from __future__ import annotations
 import json
 import os
+import time
 from typing import Optional
  
  
@@ -83,12 +84,18 @@ def generate_patch_with_llm(
     stack_fingerprint: str,
     recommendation: str,
     api_key: Optional[str] = None,
+    max_retries: int = 2,
+    retry_delay: float = 3.0,
 ) -> Optional[dict]:
     """
     Call the Anthropic API to generate a context-aware patch.
  
+    Retries up to max_retries times on rate-limit errors (HTTP 429)
+    or transient server errors (HTTP 529), waiting retry_delay seconds
+    between attempts. Returns None after all retries are exhausted so
+    the generator can fall back to a static template.
+ 
     Returns a patch dict on success, None on any failure.
-    The generator falls back to static templates when this returns None.
     """
     try:
         client = _get_client(api_key)
@@ -115,31 +122,44 @@ Use the stack information to make the patch precise — for example, if the stac
 includes "Nginx", generate nginx config; if it includes "Flask", generate Python.
 """
  
-    try:
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            system=_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
-        )
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2000,
+                system=_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_message}],
+            )
  
-        raw = response.content[0].text.strip()
+            raw = response.content[0].text.strip()
  
-        # Strip markdown code fences if Claude added them despite instructions
-        if raw.startswith("```"):
-            lines = raw.splitlines()
-            raw = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
+            # Strip markdown code fences if Claude added them despite instructions
+            if raw.startswith("```"):
+                lines = raw.splitlines()
+                raw = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
  
-        patch_data = json.loads(raw)
+            patch_data = json.loads(raw)
  
-        # Validate required keys are present
-        required = {"filename", "file_type", "content", "instructions", "verification"}
-        if not required.issubset(patch_data.keys()):
+            # Validate required keys are present
+            required = {"filename", "file_type", "content", "instructions", "verification"}
+            if not required.issubset(patch_data.keys()):
+                return None
+ 
+            return patch_data
+ 
+        except Exception as exc:
+            exc_str = str(exc).lower()
+            is_rate_limit   = "429" in exc_str or "rate_limit" in exc_str or "too many" in exc_str
+            is_overloaded   = "529" in exc_str or "overloaded" in exc_str
+            is_retryable    = is_rate_limit or is_overloaded
+ 
+            if is_retryable and attempt < max_retries:
+                # Exponential back-off: 3s, 6s, 12s ...
+                wait = retry_delay * (2 ** attempt)
+                time.sleep(wait)
+                continue  # retry
+ 
+            # Non-retryable error or retries exhausted — fall back to template
             return None
  
-        return patch_data
- 
-    except Exception:
-        # Any failure — JSON parse error, API error, timeout — returns None
-        # and the generator falls back to the static template
-        return None
+    return None  # should not reach here, but satisfies type checker

@@ -256,7 +256,7 @@
       "file_type": "python",
       "severity": "HIGH",
       "layer": "app",
-      "is_llm": false,
+      "source": "standard",
       "instructions": "Open the printed config snippet and add the appropriate block to your Flask app config or Django settings.py. These settings require HTTPS to be active \u2014 enabling Secure cookies on an HTTP-only site will break sessions.",
       "verification": "curl -I https://your-app.com | grep -i 'set-cookie'",
       "path": "patches\\APP-COOKIE-001.py"
@@ -267,32 +267,32 @@
       "file_type": "python",
       "severity": "MEDIUM",
       "layer": "app",
-      "is_llm": false,
+      "source": "standard",
       "instructions": "For Flask: install flask-wtf and initialise CSRFProtect. For Django: ensure CsrfViewMiddleware is in MIDDLEWARE and {% csrf_token %} is in all POST forms.",
       "verification": "curl -X POST https://your-app.com/login -d 'user=x' | grep -i '403\\|csrf'",
       "path": "patches\\APP-CSRF-001.py"
     },
     {
       "check_id": "APP-ADMIN-001",
-      "filename": "APP-ADMIN-001.py",
-      "file_type": "python",
+      "filename": "APP-ADMIN-001.conf",
+      "file_type": "nginx",
       "severity": "MEDIUM",
       "layer": "app",
-      "is_llm": false,
-      "instructions": "Either add authentication to admin routes in your application code, or block them entirely at the nginx level using the provided location block. The nginx approach is faster to apply and does not require app restart.",
-      "verification": "curl -o /dev/null -s -w '%{http_code}' https://your-app.com/admin",
-      "path": "patches\\APP-ADMIN-001.py"
+      "source": "AI-generated",
+      "instructions": "1. Save this script as APP-ADMIN-001.sh\n2. Make it executable: chmod +x APP-ADMIN-001.sh\n3. Run dry-run first: ./APP-ADMIN-001.sh\n4. Review the planned changes\n5. Apply the fix: ./APP-ADMIN-001.sh --apply\n6. Verify admin endpoints return 403 status",
+      "verification": "curl -I http://localhost/admin && curl -I http://localhost/debug && curl -I http://localhost/test && curl -I http://localhost/wp-admin",
+      "path": "patches\\APP-ADMIN-001.conf"
     },
     {
       "check_id": "APP-RATE-001",
-      "filename": "APP-RATE-001.py",
-      "file_type": "python",
+      "filename": "APP-RATE-001.conf",
+      "file_type": "nginx",
       "severity": "MEDIUM",
       "layer": "app",
-      "is_llm": false,
-      "instructions": "For Flask: install Flask-Limiter and apply limits to sensitive routes. For production, use Redis as storage_uri instead of memory://. Nginx-level rate limiting is recommended as an additional layer.",
-      "verification": "for i in $(seq 1 20); do curl -s -o /dev/null -w '%{http_code}\\n' https://your-app.com/api/; done",
-      "path": "patches\\APP-RATE-001.py"
+      "source": "AI-generated",
+      "instructions": "1. Save this script to a file (e.g., fix-rate-limiting.sh)\n2. Make it executable: chmod +x fix-rate-limiting.sh\n3. Run in dry-run mode first: ./fix-rate-limiting.sh --dry-run\n4. Review the proposed changes\n5. Apply the fix: sudo ./fix-rate-limiting.sh --apply\n6. Monitor /var/log/nginx/rate_limit.log for rate limiting events",
+      "verification": "nginx -t && curl -I http://localhost && grep -c 'limiting requests' /var/log/nginx/rate_limit.log",
+      "path": "patches\\APP-RATE-001.conf"
     },
     {
       "check_id": "APP-PASS-001",
@@ -300,21 +300,21 @@
       "file_type": "python",
       "severity": "LOW",
       "layer": "app",
-      "is_llm": false,
-      "instructions": "Add the validate_password function to your user registration and password change routes.",
-      "verification": "Test registration with a weak password like '123' \u2014 it should return a 400 error.",
+      "source": "AI-generated",
+      "instructions": "1. Save the patch file as APP-PASS-001.py\n2. Make it executable: chmod +x APP-PASS-001.py\n3. Run dry-run first: sudo python3 APP-PASS-001.py\n4. Review the changes that will be made\n5. Apply the fix: sudo python3 APP-PASS-001.py --apply\n6. Test password policy with a new user or passwd command\n7. Verify backups were created in case rollback is needed",
+      "verification": "sudo python3 -c \"import subprocess; result = subprocess.run(['pwscore'], input='TestPass123!', text=True, capture_output=True); print('Password policy active:' if result.returncode == 0 else 'Policy may need adjustment')\"",
       "path": "patches\\APP-PASS-001.py"
     },
     {
       "check_id": "WS-HSTS-001",
-      "filename": "WS-HSTS-001.sh",
-      "file_type": "shell",
+      "filename": "WS-HSTS-001.conf",
+      "file_type": "nginx",
       "severity": "HIGH",
       "layer": "webserver",
-      "is_llm": true,
-      "instructions": "1. Save this script to a file (e.g., fix-hsts.sh)\n2. Make it executable: chmod +x fix-hsts.sh\n3. Run in dry-run mode first: ./fix-hsts.sh\n4. Review the proposed changes\n5. Apply the fix: ./fix-hsts.sh --apply\n6. The script will automatically backup original configs, test nginx configuration, and reload nginx if successful",
-      "verification": "curl -I https://your-domain.com | grep -i strict-transport-security",
-      "path": "patches\\WS-HSTS-001.sh"
+      "source": "standard",
+      "instructions": "1. Open your nginx server configuration (usually /etc/nginx/sites-available/your-site). 2. Add the add_header line inside your HTTPS server block. 3. Run `sudo nginx -t` to verify. 4. Run `sudo systemctl reload nginx` to apply.",
+      "verification": "curl -I https://your-domain.com | grep -i 'strict-transport'",
+      "path": "patches\\WS-HSTS-001.conf"
     },
     {
       "check_id": "WS-SEC-001",
@@ -322,9 +322,9 @@
       "file_type": "shell",
       "severity": "HIGH",
       "layer": "webserver",
-      "is_llm": true,
-      "instructions": "1. Download and save this script as 'WS-SEC-001.sh'\n2. Make it executable: chmod +x WS-SEC-001.sh\n3. Run dry-run first: ./WS-SEC-001.sh\n4. Review the proposed changes\n5. Apply the fix: sudo ./WS-SEC-001.sh --apply\n6. Verify with the verification command below",
-      "verification": "curl -I http://localhost | grep -E '(X-Frame-Options|X-Content-Type-Options|X-XSS-Protection|Strict-Transport-Security)'",
+      "source": "AI-generated",
+      "instructions": "1. Save this script as WS-SEC-001.sh\n2. Make it executable: chmod +x WS-SEC-001.sh\n3. Run dry-run first: sudo ./WS-SEC-001.sh --dry-run\n4. Review the proposed changes\n5. Apply the fix: sudo ./WS-SEC-001.sh --apply\n6. The script will create backups, add security headers, and reload nginx safely",
+      "verification": "curl -I http://localhost | grep -E '(X-Content-Type-Options|X-Frame-Options|X-XSS-Protection|Strict-Transport-Security)'",
       "path": "patches\\WS-SEC-001.sh"
     },
     {
@@ -333,7 +333,7 @@
       "file_type": "nginx",
       "severity": "HIGH",
       "layer": "webserver",
-      "is_llm": false,
+      "source": "standard",
       "instructions": "Add these directives to your nginx HTTPS server block. After applying, verify with SSL Labs: https://www.ssllabs.com/ssltest/analyze.html?d=your-domain.com",
       "verification": "openssl s_client -connect your-domain.com:443 -tls1 2>&1 | grep 'handshake failure'",
       "path": "patches\\WS-TLS-001.conf"
@@ -344,21 +344,21 @@
       "file_type": "shell",
       "severity": "MEDIUM",
       "layer": "webserver",
-      "is_llm": true,
-      "instructions": "1. Save this script as WS-SRV-001.sh\n2. Make it executable: chmod +x WS-SRV-001.sh\n3. Run in dry-run mode first: sudo ./WS-SRV-001.sh\n4. Review the proposed changes\n5. Apply the fix: sudo ./WS-SRV-001.sh --apply\n6. Verify the fix using the verification command",
+      "source": "AI-generated",
+      "instructions": "1. Save this script to a file (e.g., fix-ws-srv-001.sh)\\n2. Make it executable: chmod +x fix-ws-srv-001.sh\\n3. Run in dry-run mode first: ./fix-ws-srv-001.sh\\n4. Review the proposed changes\\n5. Apply the fix: ./fix-ws-srv-001.sh --apply\\n6. The script will backup your config, modify it, test it, and reload Nginx",
       "verification": "curl -I http://localhost 2>/dev/null | grep -i server || echo 'Server header hidden successfully'",
       "path": "patches\\WS-SRV-001.sh"
     },
     {
       "check_id": "WS-LIMIT-001",
-      "filename": "WS-LIMIT-001.conf",
-      "file_type": "nginx",
+      "filename": "WS-LIMIT-001.sh",
+      "file_type": "shell",
       "severity": "LOW",
       "layer": "webserver",
-      "is_llm": false,
-      "instructions": "Add these directives to your nginx server block. Adjust client_max_body_size to match your application's upload requirements.",
-      "verification": "curl -X POST https://your-domain.com/api/ --data-binary @/dev/urandom --max-time 5 | head -1",
-      "path": "patches\\WS-LIMIT-001.conf"
+      "source": "AI-generated",
+      "instructions": "1. Save this script to a file (e.g., fix-ws-limit-001.sh)\n2. Make it executable: chmod +x fix-ws-limit-001.sh\n3. Run in dry-run mode first: ./fix-ws-limit-001.sh\n4. Review the proposed changes\n5. Apply the fix: ./fix-ws-limit-001.sh --apply\n6. The script will automatically backup configs, test nginx config, and reload if successful",
+      "verification": "nginx -T | grep -A5 -B5 client_max_body_size",
+      "path": "patches\\WS-LIMIT-001.sh"
     },
     {
       "check_id": "HOST-SSH-001",
@@ -366,9 +366,9 @@
       "file_type": "shell",
       "severity": "HIGH",
       "layer": "host",
-      "is_llm": true,
-      "instructions": "1. Save this script as HOST-SSH-001.sh\n2. Make it executable: chmod +x HOST-SSH-001.sh\n3. Run dry-run first: sudo ./HOST-SSH-001.sh --dry-run\n4. Review the changes that would be made\n5. Apply the fix: sudo ./HOST-SSH-001.sh --apply\n6. Verify SSH service is running: sudo systemctl status ssh",
-      "verification": "grep '^PermitRootLogin no' /etc/ssh/sshd_config && sudo systemctl is-active ssh",
+      "source": "AI-generated",
+      "instructions": "1. Save this script as HOST-SSH-001.sh\n2. Make it executable: chmod +x HOST-SSH-001.sh\n3. Run dry-run first to see changes: sudo ./HOST-SSH-001.sh --dry-run\n4. Apply the fix: sudo ./HOST-SSH-001.sh --apply\n5. The script will create a backup, update the SSH config, validate it, and restart the SSH service",
+      "verification": "grep '^PermitRootLogin no' /etc/ssh/sshd_config && systemctl is-active ssh",
       "path": "patches\\HOST-SSH-001.sh"
     },
     {
@@ -377,20 +377,20 @@
       "file_type": "shell",
       "severity": "HIGH",
       "layer": "host",
-      "is_llm": true,
-      "instructions": "1. Save this script as HOST-FW-001.sh\n2. Make it executable: chmod +x HOST-FW-001.sh\n3. Run in dry-run mode first: ./HOST-FW-001.sh\n4. Review the planned changes\n5. Apply the fix: ./HOST-FW-001.sh --apply\n6. Verify SSH access still works before closing your current session",
+      "source": "AI-generated",
+      "instructions": "1. Save this script as HOST-FW-001.sh\n2. Make it executable: chmod +x HOST-FW-001.sh\n3. Run in dry-run mode first: sudo ./HOST-FW-001.sh\n4. Review the proposed changes\n5. Apply the changes: sudo ./HOST-FW-001.sh --apply\n6. If you use a different SSH port, specify it: sudo ./HOST-FW-001.sh --apply --ssh-port 2222",
       "verification": "sudo ufw status verbose",
       "path": "patches\\HOST-FW-001.sh"
     },
     {
       "check_id": "HOST-SVC-001",
       "filename": "HOST-SVC-001.sh",
-      "file_type": "shell",
+      "file_type": "text",
       "severity": "MEDIUM",
       "layer": "host",
-      "is_llm": true,
-      "instructions": "1. Make the script executable: chmod +x HOST-SVC-001.sh\n2. Run in dry-run mode first to see what would be changed: ./HOST-SVC-001.sh\n3. Review the output carefully to ensure no critical services would be disabled\n4. Apply the changes: ./HOST-SVC-001.sh --apply\n5. Verify system functionality after applying changes\n6. If any issues occur, restore services from the backup directory shown in output",
-      "verification": "systemctl list-units --type=service --state=running --no-legend --no-pager | wc -l",
+      "source": "standard",
+      "instructions": "Review running services with systemctl and disable those not required for the web stack.",
+      "verification": "Re-run: stacksentry --target <url> (check HOST-SVC-001 should pass)",
       "path": "patches\\HOST-SVC-001.sh"
     }
   ]

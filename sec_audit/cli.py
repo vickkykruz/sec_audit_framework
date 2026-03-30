@@ -67,6 +67,7 @@ from sec_audit.baseline import HARDENED_FLASK_BASELINE
 from reporting.pdf_generator import generate_pdf
 from storage.history import ScanHistory
 from remediation.generator import PatchGenerator
+from remediation.auto_fix import AutoFixer, AUTOMATABLE_CHECKS
 from storage.drift import DriftEngine
  
  
@@ -274,6 +275,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-llm",
         action="store_true",
         help="Disable LLM patch generation and use static templates only.",
+    )
+ 
+    parser.add_argument(
+        "--fix",
+        action="store_true",
+        help=(
+            "Automatically apply fixes for HOST and WS layer checks via SSH. "
+            "APP and CONT layer checks generate guides only. "
+            "Requires --ssh-host to be set."
+        ),
     )
  
     return parser
@@ -650,6 +661,49 @@ def run_from_args(args: SimpleNamespace) -> None:
         except Exception as e:
             patches = []
             print(f"❌ Patch generation failed: {e!r}")
+ 
+    # ───────── AUTO-FIX (--fix) ─────────
+    fix_results = []
+    if getattr(args, "fix", False):
+        if not args.ssh_host:
+            print("⚠️  --fix requires --ssh-host to be set. Skipping auto-fix.")
+        else:
+            print("\n🔧 AUTO-FIX — applying fixes via SSH...")
+            from sec_audit.results import Status
+            failing = [c for c in scan_result.checks if c.status != Status.PASS]
+            automatable = [c for c in failing if c.id in AUTOMATABLE_CHECKS]
+            not_auto    = [c for c in failing if c.id not in AUTOMATABLE_CHECKS]
+ 
+            if automatable:
+                print(f"  {len(automatable)} check(s) will be fixed automatically")
+            if not_auto:
+                print(f"  {len(not_auto)} check(s) require manual action (APP/CONT layer)")
+            print()
+ 
+            fixer = AutoFixer(
+                ssh_host=args.ssh_host,
+                ssh_user=getattr(args, "ssh_user", "root"),
+                ssh_password=getattr(args, "ssh_password", None),
+                ssh_key=getattr(args, "ssh_key", None),
+                verbose=args.verbose,
+            )
+            fix_results = fixer.fix_all(scan_result)
+ 
+            fixed_count   = sum(1 for r in fix_results if r.status == "fixed")
+            failed_count  = sum(1 for r in fix_results if r.status == "failed")
+            skipped_count = sum(1 for r in fix_results if r.status in ("skipped", "not_automatable"))
+ 
+            print("\n📊 AUTO-FIX RESULTS:")
+            for r in fix_results:
+                icon = {"fixed": "✅", "failed": "❌", "skipped": "⏭️",
+                        "not_automatable": "📋"}.get(r.status, "?")
+                print(f"  {icon} [{r.severity if hasattr(r, 'severity') else r.layer.upper():<8}] "
+                      f"{r.check_id:<25} {r.message}")
+ 
+            print(f"\n  Fixed: {fixed_count}  |  Failed: {failed_count}  |  Manual: {skipped_count}")
+            if fixed_count > 0:
+                print(f"  Run --compare-last to verify improvements on next scan.")
+            print()
  
     # ───────── JSON EXPORT ─────────
     if args.json:

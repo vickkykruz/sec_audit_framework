@@ -16,6 +16,11 @@ from __future__ import annotations
  
 import os
 import pathlib
+import concurrent.futures
+import threading
+import json
+import re
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
  
@@ -63,6 +68,58 @@ class PatchResult:
     output_path:  Optional[pathlib.Path] = field(default=None, repr=False)
  
  
+# ── Helpers ──────────────────────────────────────────────────────────────────
+ 
+def _make_target_slug(target: str) -> str:
+    """
+    Convert a target URL to a short safe slug for use in filenames.
+    e.g. "https://admin.example.com/dashboard" → "admin-example-com"
+    """
+    import re
+    # Strip scheme and path, keep hostname
+    slug = re.sub(r"https?://", "", target)
+    slug = slug.split("/")[0]  # hostname only
+    slug = re.sub(r"[^a-zA-Z0-9-]", "-", slug)
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    return slug[:40]  # cap length to keep filenames readable
+ 
+ 
+def _make_patch_header(
+    check_id:   str,
+    check_name: str,
+    target:     str,
+    scan_date:  str,
+    severity:   str,
+    is_llm:     bool,
+    file_type:  str,
+) -> str:
+    """
+    Generate an identification header block for every patch file.
+    Format adapts to the file type (# for shell/python/nginx, <!-- for html).
+    """
+    source = "AI-generated" if is_llm else "Standard template"
+    lines  = [
+        f"StackSentry Patch",
+        f"Target:    {target}",
+        f"Check:     {check_id} — {check_name}",
+        f"Generated: {scan_date}",
+        f"Severity:  {severity}",
+        f"Source:    {source}",
+        f"",
+        f"Review this file before applying.",
+        f"Shell/Python scripts: run without --apply first (dry run).",
+        f"",
+    ]
+ 
+    if file_type in ("shell", "python", "nginx", "dockerfile", "yaml", "text"):
+        comment_char = "#"
+    else:
+        comment_char = "#"
+ 
+    header = "\n".join(f"{comment_char} {line}".rstrip() for line in lines)
+    return header + "\n\n"
+ 
+ 
 # ── PatchGenerator ────────────────────────────────────────────────────────────
  
 class PatchGenerator:
@@ -82,10 +139,15 @@ class PatchGenerator:
         use_llm: bool = True,
         api_key: Optional[str] = None,
         verbose: bool = False,
+        max_workers: int = 5,
     ):
-        self.use_llm = use_llm
-        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-        self.verbose = verbose
+        self.use_llm     = use_llm
+        self.api_key     = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        self.verbose     = verbose
+        self.max_workers = max_workers
+        self.max_retries = 2      # retries per LLM call on rate-limit errors
+        self.retry_delay = 3.0    # base delay in seconds (doubles each retry)
+        self._print_lock = threading.Lock()
  
     # ── Public API ────────────────────────────────────────────────────────────
  
@@ -105,10 +167,84 @@ class PatchGenerator:
         stack = scan_result.stack_fingerprint
         failing = [c for c in scan_result.checks if c.status != Status.PASS]
  
+        if self.verbose:
+            with self._print_lock:
+                workers = min(self.max_workers, len(failing)) if failing else 1
+                mode = "concurrent" if (self.use_llm and self.api_key) else "sequential"
+                print(f"[DEBUG] Patch generation: {len(failing)} checks, "
+                      f"{workers} workers, {mode} mode")
+ 
+        # ── Concurrent patch generation ────────────────────────────────────
+        # Each _generate_one call is independent (LLM call + template lookup),
+        # so they can all run in parallel. max_workers=5 is conservative enough
+        # to stay well within Anthropic rate limits while being ~5x faster.
+        def _generate_and_track(check) -> PatchResult:
+            return self._generate_one(
+                check.id, check.name, check.layer,
+                check.details, check.severity.value, stack,
+            )
+ 
         results: list[PatchResult] = []
+        workers = min(self.max_workers, len(failing)) if failing else 1
+ 
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            # submit preserves submission order; as_completed does not —
+            # use futures dict to recover original check order in results
+            future_to_check = {
+                executor.submit(_generate_and_track, check): check
+                for check in failing
+            }
+            # Collect in completion order (fastest first during generation)
+            # then re-sort to original check order before writing
+            completed: dict = {}
+            for future in concurrent.futures.as_completed(future_to_check):
+                check = future_to_check[future]
+                try:
+                    patch = future.result()
+                except Exception as exc:
+                    if self.verbose:
+                        with self._print_lock:
+                            print(f"[DEBUG] Patch {check.id}: exception {exc!r}")
+                    patch = self._placeholder(
+                        check.id, check.name, check.layer,
+                        check.details,
+                        _CHECK_INDEX.get(check.id, {}).get("recommendation", ""),
+                    )
+                    patch = PatchResult(
+                        check_id=check.id, check_name=check.name,
+                        layer=check.layer, severity=check.severity.value,
+                        filename=patch["filename"], file_type=patch["file_type"],
+                        content=patch["content"], instructions=patch["instructions"],
+                        verification=patch["verification"], is_llm=False,
+                    )
+                completed[check.id] = patch
+ 
+        # ── Write files in original check order ───────────────────────────
+        # Build a short safe slug from the target URL for filename identification
+        target_slug = _make_target_slug(scan_result.target)
+        scan_date   = datetime.now(tz=timezone.utc).strftime("%Y%m%d")
+ 
         for check in failing:
-            patch = self._generate_one(check.id, check.name, check.layer,
-                                        check.details, check.severity.value, stack)
+            patch = completed[check.id]
+ 
+            # Add target + date to filename so patches are identifiable at scale
+            # e.g. HOST-SSH-001_admin-example-com_20260330.sh
+            stem, ext = pathlib.Path(patch.filename).stem, pathlib.Path(patch.filename).suffix
+            identified_filename = f"{stem}_{target_slug}_{scan_date}{ext}"
+            patch.filename = identified_filename
+ 
+            # Prepend identification header to every patch file
+            header = _make_patch_header(
+                check_id=patch.check_id,
+                check_name=patch.check_name,
+                target=scan_result.target,
+                scan_date=scan_date,
+                severity=patch.severity,
+                is_llm=patch.is_llm,
+                file_type=patch.file_type,
+            )
+            patch.content = header + patch.content
+ 
             path = out / patch.filename
             path.write_text(patch.content, encoding="utf-8")
             patch.output_path = path
@@ -116,6 +252,7 @@ class PatchGenerator:
  
         if results:
             self._write_readme(results, out, scan_result)
+            self._write_manifest(results, out, scan_result)
  
         return results
  
@@ -141,7 +278,8 @@ class PatchGenerator:
         # ── Step 1: Try LLM ───────────────────────────────────────────────────
         if self.use_llm and self.api_key:
             if self.verbose:
-                print(f"[DEBUG] Patch {check_id}: calling Claude API...")
+                with self._print_lock:
+                    print(f"[DEBUG] Patch {check_id}: calling Claude API...")
             patch_data = generate_patch_with_llm(
                 check_id=check_id,
                 check_name=check_name,
@@ -151,25 +289,31 @@ class PatchGenerator:
                 stack_fingerprint=stack,
                 recommendation=recommendation,
                 api_key=self.api_key,
+                max_retries=self.max_retries,
+                retry_delay=self.retry_delay,
             )
             if patch_data:
                 is_llm = True
                 if self.verbose:
-                    print(f"[DEBUG] Patch {check_id}: Claude AI generated {patch_data['filename']}")
+                    with self._print_lock:
+                        print(f"[DEBUG] Patch {check_id}: Claude AI generated {patch_data['filename']}")
             else:
                 if self.verbose:
-                    print(f"[DEBUG] Patch {check_id}: LLM returned None — falling back to template")
+                    with self._print_lock:
+                        print(f"[DEBUG] Patch {check_id}: LLM returned None — falling back to template")
  
         # ── Step 2: Static template fallback ─────────────────────────────────
         if not patch_data:
             patch_data = get_template(check_id, details=details, stack=stack)
             if patch_data and self.verbose:
-                print(f"[DEBUG] Patch {check_id}: using static template → {patch_data['filename']}")
+                with self._print_lock:
+                    print(f"[DEBUG] Patch {check_id}: using static template → {patch_data['filename']}")
  
         # ── Step 3: Placeholder fallback ─────────────────────────────────────
         if not patch_data:
             if self.verbose:
-                print(f"[DEBUG] Patch {check_id}: no template found — generating placeholder")
+                with self._print_lock:
+                    print(f"[DEBUG] Patch {check_id}: no template found — generating placeholder")
             patch_data = self._placeholder(check_id, check_name, layer,
                                             details, recommendation)
  
@@ -298,3 +442,45 @@ class PatchGenerator:
  
         readme_path = output_dir / "README.md"
         readme_path.write_text("\n".join(lines), encoding="utf-8")
+ 
+    @staticmethod
+    def _write_manifest(
+        results: list[PatchResult],
+        output_dir: pathlib.Path,
+        scan_result,
+    ) -> None:
+        """
+        Write a machine-readable patches/manifest.json so dashboards,
+        CI/CD pipelines, and the SaaS tier can discover and process
+        patches without parsing individual files.
+        """
+        manifest = {
+            "stacksentry_version": "1.0.0",
+            "target":              scan_result.target,
+            "scan_date":           datetime.now(tz=timezone.utc).isoformat(),
+            "grade":               scan_result.grade.value,
+            "score_percentage":    scan_result.score_percentage,
+            "total_patches":       len(results),
+            "ai_generated":        sum(1 for r in results if r.is_llm),
+            "standard":            sum(1 for r in results if not r.is_llm),
+            "patches": [
+                {
+                    "check_id":     r.check_id,
+                    "check_name":   r.check_name,
+                    "filename":     r.filename,
+                    "file_type":    r.file_type,
+                    "layer":        r.layer,
+                    "severity":     r.severity,
+                    "source":       "AI-generated" if r.is_llm else "standard",
+                    "instructions": r.instructions,
+                    "verification": r.verification,
+                    "path":         str(r.output_path) if r.output_path else None,
+                    "automatable":  r.layer in ("host", "webserver"),
+                }
+                for r in results
+            ],
+        }
+        manifest_path = output_dir / "manifest.json"
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2), encoding="utf-8"
+        )
