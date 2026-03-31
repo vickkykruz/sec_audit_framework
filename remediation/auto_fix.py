@@ -154,6 +154,100 @@ FIX_REGISTRY: dict[str, callable] = {
     "WS-LIMIT-001":    _request_limits_commands,
 }
  
+# APP layer snippets — framework-specific, printed when --fix is used
+APP_SNIPPETS = {
+    "APP-DEBUG-001": {
+        "flask":  "app.config['DEBUG'] = False  # or set FLASK_ENV=production",
+        "django": "DEBUG = False  # in settings.py",
+        "generic": "Set DEBUG=False in your framework config before deploying.",
+    },
+    "APP-COOKIE-001": {
+        "flask": (
+            "app.config.update(\n"
+            "    SESSION_COOKIE_SECURE=True,\n"
+            "    SESSION_COOKIE_HTTPONLY=True,\n"
+            "    SESSION_COOKIE_SAMESITE='Lax',\n"
+            ")"
+        ),
+        "django": (
+            "SESSION_COOKIE_SECURE = True\n"
+            "SESSION_COOKIE_HTTPONLY = True\n"
+            "SESSION_COOKIE_SAMESITE = 'Lax'\n"
+            "CSRF_COOKIE_SECURE = True"
+        ),
+        "generic": "Enable Secure, HttpOnly, and SameSite flags on session cookies.",
+    },
+    "APP-CSRF-001": {
+        "flask": (
+            "# pip install flask-wtf\n"
+            "from flask_wtf.csrf import CSRFProtect\n"
+            "csrf = CSRFProtect(app)\n"
+            "app.config['SECRET_KEY'] = 'your-secret-key'"
+        ),
+        "django": (
+            "# Ensure this is in MIDDLEWARE:\n"
+            "'django.middleware.csrf.CsrfViewMiddleware',\n"
+            "# Add to templates: {% csrf_token %}"
+        ),
+        "generic": "Enable CSRF middleware and validate tokens on all state-changing requests.",
+    },
+    "APP-ADMIN-001": {
+        "flask": (
+            "# Block admin routes at nginx level (add to server block):\n"
+            "location ~ ^/(admin|debug|test|wp-admin) { deny all; return 403; }\n"
+            "# Or protect in Flask:\n"
+            "@app.before_request\n"
+            "def restrict_admin():\n"
+            "    if request.path.startswith('/admin') and not current_user.is_admin:\n"
+            "        abort(403)"
+        ),
+        "django": (
+            "# Restrict admin to specific IPs in settings.py:\n"
+            "INTERNAL_IPS = ['your.trusted.ip']\n"
+            "# Or use django-admin-honeypot for decoy admin URL"
+        ),
+        "generic": "Protect or disable /admin, /debug, /test endpoints behind authentication.",
+    },
+    "APP-RATE-001": {
+        "flask": (
+            "# pip install Flask-Limiter\n"
+            "from flask_limiter import Limiter\n"
+            "from flask_limiter.util import get_remote_address\n"
+            "limiter = Limiter(app=app, key_func=get_remote_address,\n"
+            "    default_limits=['200 per day', '50 per hour'])"
+        ),
+        "django": (
+            "# pip install django-ratelimit\n"
+            "from django_ratelimit.decorators import ratelimit\n"
+            "@ratelimit(key='ip', rate='10/m', method='POST', block=True)\n"
+            "def login_view(request): ..."
+        ),
+        "generic": "Implement rate limiting at the application or nginx level.",
+    },
+    "APP-PASS-001": {
+        "flask": (
+            "import re\n"
+            "def validate_password(pwd):\n"
+            "    return (len(pwd) >= 12 and\n"
+            "            re.search(r'[A-Z]', pwd) and\n"
+            "            re.search(r'[a-z]', pwd) and\n"
+            "            re.search(r'\\d', pwd) and\n"
+            "            re.search(r'[!@#$%^&*]', pwd))"
+        ),
+        "django": (
+            "# In settings.py:\n"
+            "AUTH_PASSWORD_VALIDATORS = [\n"
+            "    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',\n"
+            "     'OPTIONS': {'min_length': 12}},\n"
+            "    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},\n"
+            "    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},\n"
+            "]"
+        ),
+        "generic": "Enforce minimum 12 chars, mixed case, numbers and symbols.",
+    },
+}
+ 
+ 
 NOT_AUTOMATABLE = {
     "APP-DEBUG-001":  "Application code — set DEBUG=False in Flask/Django config.",
     "APP-COOKIE-001": "Application code — add SESSION_COOKIE_SECURE to app config.",
@@ -225,10 +319,13 @@ class AutoFixer:
         self.nginx_conf   = nginx_conf
         self.verbose      = verbose
         self.timeout      = timeout
+        self._stack_fingerprint = ""  # set by fix_all from scan_result
  
     def fix_all(self, scan_result) -> list[FixResult]:
         from sec_audit.results import Status
         failing = [c for c in scan_result.checks if c.status != Status.PASS]
+        # Store stack fingerprint for framework-specific APP snippets
+        self._stack_fingerprint = getattr(scan_result, "stack_fingerprint", "")
  
         PRIORITY = {"HOST-FW-001": 0, "HOST-SSH-001": 90}
  
@@ -281,8 +378,14 @@ class AutoFixer:
                  shared_client=None) -> FixResult:
  
         if check_id in NOT_AUTOMATABLE and layer == "app":
-            return FixResult(check_id, check_name, layer, "not_automatable",
-                             NOT_AUTOMATABLE[check_id])
+            # Path B: generate framework-specific snippet alongside the manual message
+            snippet = self._app_snippet(check_id)
+            base_msg = NOT_AUTOMATABLE[check_id]
+            if snippet:
+                msg = f"{base_msg}\n\n  📋 Copy-paste fix for your stack:\n{snippet}"
+            else:
+                msg = base_msg
+            return FixResult(check_id, check_name, layer, "not_automatable", msg)
  
         if self.ssh_host and check_id in FIX_REGISTRY:
             return self._execute_fix(check_id, check_name, layer,
@@ -356,6 +459,28 @@ class AutoFixer:
                 except Exception: pass
             return FixResult(check_id, check_name, layer, "failed",
                              f"SSH error: {exc!r}", executed)
+ 
+    # ── App layer snippet generation (Path B) ───────────────────────────────
+ 
+    def _app_snippet(self, check_id: str) -> str:
+        """
+        Return a framework-specific copy-paste code snippet for an APP check.
+        Detects framework from the stack_fingerprint if available, else generic.
+        """
+        snippets = APP_SNIPPETS.get(check_id)
+        if not snippets:
+            return ""
+        stack = getattr(self, "_stack_fingerprint", "").lower()
+        if "flask" in stack:
+            framework = "flask"
+        elif "django" in stack:
+            framework = "django"
+        else:
+            framework = "generic"
+        snippet_text = snippets.get(framework, snippets.get("generic", ""))
+        # Indent each line for clean console output
+        lines = snippet_text.splitlines()
+        return "\n".join(f"    {line}" for line in lines)
  
     # ── File-based fix methods ────────────────────────────────────────────────
  
