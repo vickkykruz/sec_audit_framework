@@ -695,6 +695,9 @@ def run_from_args(args: SimpleNamespace) -> None:
                 ssh_user=getattr(args, "ssh_user", "root"),
                 ssh_password=getattr(args, "ssh_password", None),
                 ssh_key=getattr(args, "ssh_key", None),
+                dockerfile=getattr(args, "dockerfile", None),
+                compose_file=getattr(args, "compose_file", None),
+                nginx_conf=getattr(args, "nginx_conf", None),
                 verbose=args.verbose,
             )
             fix_results = fixer.fix_all(scan_result)
@@ -770,3 +773,25 @@ def run_from_args(args: SimpleNamespace) -> None:
     scan_count = history.count(args.target)
     print(f"⏱  Scan duration: {duration:.1f} seconds  "
           f"(scan #{scan_count} for this target — history at {history.db_path})")
+ 
+def main() -> None:
+    """Entry point for `stacksentry` CLI command after pip install."""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+ 
+    parser = build_parser()
+    args   = parser.parse_args()
+ 
+    try:
+        run_from_args(args)
+    except KeyboardInterrupt:
+        print("\n[INFO] Scan interrupted.")
+    except EOFError:
+        print("\n[INFO] Input stream closed.")
+ 
+ 
+if __name__ == "__main__":
+    main()
