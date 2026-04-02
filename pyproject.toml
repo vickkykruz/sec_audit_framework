@@ -29,14 +29,15 @@ classifiers = [
 ]
  
 dependencies = [
-    "requests==2.31.0",
-    "urllib3>=1.21.1,<2.1",
+    "requests>=2.31.0",
+    "urllib3>=1.26.0,<3.0",
     "docker==7.0.0",
     "paramiko==3.4.0",
     "PyYAML==6.0.1",
     "reportlab==4.2.2",
     "anthropic>=0.50.0",
     "python-dotenv>=1.0.0",
+    "nginxparser-eb>=0.0.9",
 ]
  
 [project.optional-dependencies]
