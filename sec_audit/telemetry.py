@@ -310,8 +310,8 @@ def _subscribe_background(email: str) -> None:
     This is intentionally NOT a background thread — subscription is a
     one-time event and the program exits immediately after, which would
     kill a daemon thread before the request completes.
-    """
-    _post(SUBSCRIBE_URL, {"email": email, "source": "stacksentry_cli"})"""
+    
+    _post(SUBSCRIBE_URL, {"email": email, "source": "stacksentry_cli"})
 sec_audit/telemetry.py — Anonymous opt-in usage telemetry.
  
 PRIVACY CONTRACT (never violated):
