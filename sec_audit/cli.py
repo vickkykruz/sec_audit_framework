@@ -442,9 +442,6 @@ def run_from_args(args: SimpleNamespace) -> None:
         handle_telemetry_flag(args.telemetry)
         return
  
-    # ───────── FIRST RUN CONSENT ─────────
-    prompt_first_run()
- 
     start = time.time()
  
     # ───────── --history: show timeline and exit (no scan needed) ─────────
@@ -729,10 +726,6 @@ def run_from_args(args: SimpleNamespace) -> None:
                 count=len(patches),
                 llm_count=sum(1 for p in patches if p.is_llm),
             )
-            track_patch_generated(
-                count=len(patches),
-                llm_count=sum(1 for p in patches if p.is_llm),
-            )
             print(f"\n🔧 PATCH FILES GENERATED ({len(patches)} files → {patch_dir}/):")
             for p in patches:
                 source = "AI-generated" if p.is_llm else "standard"
@@ -745,7 +738,7 @@ def run_from_args(args: SimpleNamespace) -> None:
             patches = []
             print(f"❌ Patch generation failed: {e!r}")
  
-        # ───────── AUTO-FIX (--fix) ─────────
+    # ───────── AUTO-FIX (--fix) ─────────
     fix_results = []
     dry_run = getattr(args, "dry_run", False)
  
@@ -827,7 +820,7 @@ def run_from_args(args: SimpleNamespace) -> None:
                     print("  Run --compare-last to verify improvements on next scan.")
             print()
  
-# ───────── JSON EXPORT ─────────
+    # ───────── JSON EXPORT ─────────
     if args.json:
         try:
             with open(args.json, "w", encoding="utf-8") as f:
@@ -867,7 +860,6 @@ def run_from_args(args: SimpleNamespace) -> None:
                     }
                 json.dump(result_dict, f, indent=2)
             track_report_generated("json")
-            track_report_generated("json")
             print(f"💾 JSON results written to: {args.json}")
         except Exception as e:
             print(f"❌ Failed to write JSON: {e!r}")
@@ -876,7 +868,6 @@ def run_from_args(args: SimpleNamespace) -> None:
     if args.output:
         try:
             generate_pdf(scan_result, args.output, profile=args.profile, drift_report=drift_report, simulation_result=sim_result, patch_results=patches, fix_results=fix_results)
-            track_report_generated("pdf")
             track_report_generated("pdf")
             print(f"📄 PDF report generated: {args.output}")
         except Exception as e:
@@ -901,25 +892,11 @@ def main() -> None:
     parser = build_parser()
     args   = parser.parse_args()
  
-    # Handle standalone commands first — no target needed
-    if args.telemetry:
-        handle_telemetry_flag(args.telemetry)
-        return
- 
-    if args.version:
-        print(f"StackSentry v{VERSION}")
-        return
- 
-    if args.history:
-        # handle history
-        return
- 
-    # All other commands require --target
-    if not args.target:
-        parser.error("--target is required for scanning")
- 
+    # run_from_args handles --telemetry, --history, and --target validation
     try:
         run_from_args(args)
+    except SystemExit:
+        raise  # let argparse --help and --version exit cleanly
     except KeyboardInterrupt:
         print("\n[INFO] Scan interrupted.")
     except EOFError:
