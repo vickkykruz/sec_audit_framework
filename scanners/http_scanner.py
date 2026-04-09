@@ -1,34 +1,107 @@
 """
 HTTP Client for web app and webserver checks.
-
+ 
 Uses requests library for:
 - Header inspection
 - TLS/cipher analysis
 - Cookie flag checking
 - Endpoint discovery
 """
-
-
+ 
+ 
 from typing import Optional
 import requests
-
+ 
 from sec_audit.results import ScanResult
-
-
+ 
+ 
 class HttpScanner:
     """Simple HTTP scanner wrapper around requests."""
-
+ 
     def __init__(self, base_url: str, timeout: int = 5, scan_result: Optional[ScanResult] = None) -> None:
-        self.base_url = base_url.rstrip("/")
-        self.timeout = timeout
-        self.session = requests.Session()
+        # Strip query strings and fragments from base_url so path construction
+        # works correctly. e.g. https://example.com/index.php?page → https://example.com/index.php
+        from urllib.parse import urlparse, urlunparse
+        parsed   = urlparse(base_url)
+        clean    = urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+        self.base_url    = clean.rstrip("/")
+        self.raw_url     = base_url   # preserve original for display
+        self.timeout     = timeout
+        self.session     = requests.Session()
         self.scan_result = scan_result
-
-
+ 
+    def detect_stack(self) -> dict:
+        """
+        Detect the application stack from HTTP response headers and URL patterns.
+        Returns a dict with keys: language, framework, webserver, is_php, is_python, is_shared_hosting
+        Used by patch generator to produce language-appropriate remediation.
+        """
+        result = {
+            "language":           "unknown",
+            "framework":          "unknown",
+            "webserver":          "unknown",
+            "is_php":             False,
+            "is_python":          False,
+            "is_shared_hosting":  False,
+        }
+        try:
+            resp = self.get_root()
+            headers = {k.lower(): v for k, v in resp.headers.items()}
+ 
+            # Detect webserver
+            server = headers.get("server", "").lower()
+            if "nginx"   in server: result["webserver"] = "nginx"
+            elif "apache" in server: result["webserver"] = "apache"
+            elif "iis"    in server: result["webserver"] = "iis"
+            elif "cloudflare" in server: result["webserver"] = "cloudflare"
+ 
+            # Detect language from X-Powered-By
+            powered_by = headers.get("x-powered-by", "").lower()
+            if "php" in powered_by:
+                result["language"] = "php"
+                result["is_php"]   = True
+            elif "express" in powered_by or "node" in powered_by:
+                result["language"] = "nodejs"
+            elif "asp.net" in powered_by:
+                result["language"] = "dotnet"
+ 
+            # Detect PHP from URL pattern even without header
+            if not result["is_php"] and ".php" in self.raw_url.lower():
+                result["language"] = "php"
+                result["is_php"]   = True
+ 
+            # Detect PHP from session cookie
+            for cookie in resp.cookies:
+                if "phpsessid" in cookie.name.lower():
+                    result["language"] = "php"
+                    result["is_php"]   = True
+                    break
+ 
+            # Detect Python frameworks
+            if not result["is_php"]:
+                if "wsgi" in server or "gunicorn" in server or "uvicorn" in server:
+                    result["is_python"] = True
+                    result["language"]  = "python"
+                # Check for Django/Flask tells
+                for cookie in resp.cookies:
+                    if cookie.name in ("csrftoken", "sessionid"):
+                        result["is_python"]  = True
+                        result["language"]   = "python"
+                        result["framework"]  = "django"
+ 
+            # Detect shared hosting (Apache + PHP, no gunicorn/uwsgi tells)
+            if result["is_php"] and result["webserver"] in ("apache", "unknown"):
+                result["is_shared_hosting"] = True
+ 
+        except Exception:
+            pass
+        return result
+ 
+ 
     def get_root(self) -> requests.Response:
         """
         Perform a GET request to the root URL.
-
+ 
         Returns:
             requests.Response object with text, status_code, headers, cookies, etc.
         """
@@ -43,19 +116,19 @@ class HttpScanner:
             server_header = response.headers.get("Server", "")
             if server_header:
                 self.scan_result._webserver_version = server_header
-
+ 
             powered_by = response.headers.get("X-Powered-By", "")
             if powered_by:
                 # Simple heuristic: record as app version hint
                 self.scan_result._app_version = powered_by
-
+ 
         return response
-
+ 
     
     def head_root(self) -> requests.Response:
         """
         Perform a HEAD request to the root URL.
-
+ 
         Returns:
             requests.Response object with headers and status_code.
         """
@@ -65,4 +138,3 @@ class HttpScanner:
             allow_redirects=True,
         )
         return response
-    

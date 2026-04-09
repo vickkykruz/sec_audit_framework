@@ -86,6 +86,7 @@ def generate_patch_with_llm(
     api_key: Optional[str] = None,
     max_retries: int = 2,
     retry_delay: float = 3.0,
+    verbose: bool = False,
 ) -> Optional[dict]:
     """
     Call the Anthropic API to generate a context-aware patch.
@@ -97,9 +98,14 @@ def generate_patch_with_llm(
  
     Returns a patch dict on success, None on any failure.
     """
+    if verbose:
+        print(f"[DEBUG] LLM: generating patch for {check_id} "
+              f"(stack: {stack_fingerprint or 'unknown'})")
     try:
         client = _get_client(api_key)
-    except (ImportError, ValueError):
+    except (ImportError, ValueError) as e:
+        if verbose:
+            print(f"[DEBUG] LLM: client unavailable ({e!r}) — skipping")
         return None
  
     user_message = f"""\
@@ -145,6 +151,10 @@ includes "Nginx", generate nginx config; if it includes "Flask", generate Python
             if not required.issubset(patch_data.keys()):
                 return None
  
+            if verbose:
+                print(f"[DEBUG] LLM: patch generated for {check_id} "
+                      f"→ {patch_data.get('filename', '?')} "
+                      f"(attempt {attempt + 1})")
             return patch_data
  
         except Exception as exc:
@@ -156,10 +166,20 @@ includes "Nginx", generate nginx config; if it includes "Flask", generate Python
             if is_retryable and attempt < max_retries:
                 # Exponential back-off: 3s, 6s, 12s ...
                 wait = retry_delay * (2 ** attempt)
+                if verbose:
+                    reason = "rate limit" if is_rate_limit else "server overloaded"
+                    print(f"[DEBUG] LLM: {reason} on {check_id} — "
+                          f"retrying in {wait:.0f}s "
+                          f"(attempt {attempt + 1}/{max_retries})")
                 time.sleep(wait)
                 continue  # retry
  
             # Non-retryable error or retries exhausted — fall back to template
+            if verbose:
+                print(f"[DEBUG] LLM: giving up on {check_id} "
+                      f"after {attempt + 1} attempt(s) — "
+                      f"falling back to static template")
             return None
  
     return None  # should not reach here, but satisfies type checker
+ 

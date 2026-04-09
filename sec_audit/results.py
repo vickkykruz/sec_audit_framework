@@ -135,10 +135,37 @@ class ScanResult:
  
     @property
     def pass_rate(self) -> float:
-        """Percentage of PASS checks (ERRORs excluded from scoring)."""
-        passed = sum(1 for c in self.checks if c.status == Status.PASS)
-        valid_checks = sum(1 for c in self.checks 
-                          if c.status in [Status.PASS, Status.FAIL, Status.WARN])
+        """
+        Percentage of PASS checks (ERRORs excluded).
+ 
+        Shared hosting / no-SSH mode: HOST and CONT checks that return WARN
+        purely because SSH/Docker credentials were not provided are excluded
+        from scoring. These are infrastructure-unavailable results, not genuine
+        security failures — penalising a PHP shared-hosting app for not having
+        Docker would be inaccurate.
+ 
+        A check is considered "infrastructure WARN" if:
+          - Its layer is "host" or "container" AND
+          - Its status is WARN AND
+          - Its details mention "not provided" or "SSH" or "Docker"
+        """
+        INFRA_SKIP_KEYWORDS = (
+            "not provided", "ssh parameter", "docker", "no --ssh", "no --docker",
+            "skipping", "cannot verify without"
+        )
+ 
+        def is_infra_warn(c) -> bool:
+            if c.status != Status.WARN:
+                return False
+            if c.layer not in ("host", "container"):
+                return False
+            details_lower = (c.details or "").lower()
+            return any(kw in details_lower for kw in INFRA_SKIP_KEYWORDS)
+ 
+        scorable = [c for c in self.checks if not is_infra_warn(c)]
+        passed      = sum(1 for c in scorable if c.status == Status.PASS)
+        valid_checks = sum(1 for c in scorable
+                           if c.status in [Status.PASS, Status.FAIL, Status.WARN])
         return (passed / valid_checks * 100) if valid_checks > 0 else 0.0
     
     

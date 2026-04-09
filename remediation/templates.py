@@ -156,9 +156,13 @@ print("NOTE: SESSION_COOKIE_SECURE requires HTTPS to be enabled.")
  
  
 def patch_app_csrf(details: str = "", stack: str = "") -> dict:
+    # Choose file type and name based on detected stack
+    is_php = "php" in stack.lower()
+    fname  = "APP-CSRF-001.php" if is_php else "APP-CSRF-001.py"
+    ftype  = "php"              if is_php else "python"
     return _patch(
-        filename="APP-CSRF-001.py",
-        file_type="python",
+        filename=fname,
+        file_type=ftype,
         content='''\
 #!/usr/bin/env python3
 """
@@ -198,11 +202,51 @@ MIDDLEWARE = [
 # {% csrf_token %}
 """
  
+PHP_CONFIG = """
+# ── CSRF protection for PHP ──────────────────────────────────────────────────
+# Option A: Laravel (recommended)
+# Laravel includes CSRF protection automatically via VerifyCsrfToken middleware.
+# Ensure your forms include:
+#   <form method="POST">
+#     @csrf
+#     ...
+#   </form>
+#
+# Option B: Vanilla PHP
+# Generate and validate a token manually:
+ 
+<?php
+// In your session init (e.g. header.php):
+session_start();
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+ 
+// In your form:
+// <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+ 
+// In your form handler:
+if (!isset($_POST['csrf_token']) ||
+    !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+    http_response_code(403);
+    die('CSRF token validation failed.');
+}
+?>
+"""
+ 
+# Option C: CodeIgniter
+# CodeIgniter 4 has CSRF protection built in.
+# In app/Config/Security.php set:
+#   public bool $csrfProtection = true;
+ 
 print("=== APP-CSRF-001: CSRF Protection ===")
 print(FLASK_CONFIG)
 print(DJANGO_CONFIG)
+print(PHP_CONFIG)
 ''',
         instructions=(
+            "For PHP/Laravel: use @csrf directive in Blade forms. "
+            "For vanilla PHP: generate a token with random_bytes(32) and validate on POST. "
             "For Flask: install flask-wtf and initialise CSRFProtect. "
             "For Django: ensure CsrfViewMiddleware is in MIDDLEWARE and "
             "{% csrf_token %} is in all POST forms."
@@ -212,8 +256,11 @@ print(DJANGO_CONFIG)
  
  
 def patch_app_admin(details: str = "", stack: str = "") -> dict:
+    is_php = "php" in stack.lower()
+    fname  = "APP-ADMIN-001.php" if is_php else "APP-ADMIN-001.py"
+    ftype  = "php"               if is_php else "python"
     return _patch(
-        filename="APP-ADMIN-001.py",
+        filename=fname,
         file_type="python",
         content='''\
 #!/usr/bin/env python3
@@ -1034,3 +1081,4 @@ def get_template(check_id: str, details: str = "", stack: str = "") -> Optional[
     }
     factory = registry.get(check_id)
     return factory() if factory else None
+ 

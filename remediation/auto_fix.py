@@ -295,6 +295,43 @@ FILE_FIXABLE = {
 }
  
  
+ 
+def _secure_key_file(key_path: pathlib.Path) -> None:
+    """
+    Restrict a private key file to owner-read/write only.
+ 
+    Cross-platform:
+      Linux / macOS : chmod 600
+      Windows       : icacls strips inherited permissions and grants
+                      only the current user Full Control — the Windows
+                      equivalent of chmod 600. Without this, other local
+                      Windows users could read the private key.
+ 
+    Falls back gracefully if permission setting fails.
+    """
+    import sys
+    try:
+        if sys.platform == "win32":
+            import subprocess
+            import os
+            username = os.environ.get("USERNAME", os.environ.get("USER", ""))
+            if username:
+                subprocess.run(
+                    ["icacls", str(key_path), "/inheritance:r",
+                     "/grant:r", f"{username}:(F)"],
+                    check=True, capture_output=True,
+                )
+            else:
+                print(f"  ⚠️  Could not determine Windows username — "
+                      f"key permissions not restricted: {key_path}")
+        else:
+            # Linux / macOS — standard Unix permission bits
+            key_path.chmod(0o600)
+    except Exception as e:
+        print(f"  ⚠️  Could not set key file permissions ({e}). "
+              f"Restrict manually: {key_path}")
+ 
+ 
 class AutoFixer:
     """Context-aware fix executor — SSH, Dockerfile, compose, or nginx file."""
  
@@ -363,7 +400,168 @@ class AutoFixer:
     def fix_check(self, check_id: str, check_name: str, layer: str) -> FixResult:
         return self._fix_one(check_id, check_name, layer)
  
+    def _key_store_dir(self) -> pathlib.Path:
+        """Directory where StackSentry-generated SSH keys are stored."""
+        d = pathlib.Path.home() / ".stacksentry" / "keys"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+ 
+    def _ensure_ssh_key(self, shared_client) -> dict:
+        """
+        If the user authenticated with a password, generate a new Ed25519 SSH
+        key pair, install the public key on the server, verify it works, then
+        update self.ssh_key so subsequent fixes also use the key.
+ 
+        This is called exclusively for HOST-SSH-001 before applying
+        prohibit-password — it prevents the user being locked out.
+ 
+        Returns:
+            {
+              "success":  bool,
+              "key_path": str | None,
+              "message":  str,
+            }
+        """
+        v = self.verbose
+        if v: print("[DEBUG] HOST-SSH-001: SSH key pre-flight starting")
+ 
+        # Already using a key — nothing to do
+        if self.ssh_key:
+            return {"success": True, "key_path": self.ssh_key,
+                    "message": "SSH key already in use — skipping key generation."}
+ 
+        if not self.ssh_password:
+            return {"success": False, "key_path": None,
+                    "message": "No SSH credentials available to generate key."}
+ 
+        try:
+            import paramiko
+            from io import StringIO
+ 
+            if v: print("[DEBUG] HOST-SSH-001: generating Ed25519 key pair")
+            # Generate Ed25519 key pair
+            key = paramiko.Ed25519Key.generate()
+ 
+            # Build paths
+            stamp     = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
+            host_slug = (self.ssh_host or "server").replace(".", "-").replace(":", "-")
+            key_path  = self._key_store_dir() / f"{host_slug}_{stamp}.pem"
+            pub_path  = self._key_store_dir() / f"{host_slug}_{stamp}.pub"
+ 
+            # Save private key with OS-appropriate permissions
+            sio = StringIO()
+            key.write_private_key(sio)
+            key_path.write_text(sio.getvalue())
+            _secure_key_file(key_path)
+ 
+            # Save public key in OpenSSH format
+            pub_key_str = f"ssh-ed25519 {key.get_base64()} stacksentry-generated"
+            pub_path.write_text(pub_key_str + "\n")
+ 
+            if v: print(f"[DEBUG] HOST-SSH-001: saving private key to {key_path}")
+            # Install public key on server via existing password-authenticated session
+            if v: print(f"[DEBUG] HOST-SSH-001: uploading public key to {self.ssh_host}")
+            for cmd in [
+                "mkdir -p ~/.ssh",
+                "chmod 700 ~/.ssh",
+                f"echo '{pub_key_str}' >> ~/.ssh/authorized_keys",
+                "chmod 600 ~/.ssh/authorized_keys",
+                "sort -u ~/.ssh/authorized_keys -o ~/.ssh/authorized_keys",
+            ]:
+                _, stdout, _ = shared_client.exec_command(cmd)
+                stdout.channel.recv_exit_status()
+ 
+            if v: print("[DEBUG] HOST-SSH-001: verifying key login before changing sshd")
+            # Verify the key actually works before we change sshd config
+            test_client = paramiko.SSHClient()
+            test_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            try:
+                test_client.connect(
+                    hostname=self.ssh_host,
+                    username=self.ssh_user,
+                    key_filename=str(key_path),
+                    timeout=10,
+                )
+                test_client.close()
+            except Exception as e:
+                return {
+                    "success": False,
+                    "key_path": None,
+                    "message": (
+                        f"Key generated but test login failed ({e}). "
+                        "SSH config will NOT be changed to avoid lockout. "
+                        f"Public key saved to {pub_path} — install manually "
+                        "then re-run."
+                    ),
+                }
+ 
+            # Update self so all remaining fixes also use the new key
+            self.ssh_key      = str(key_path)
+            self.ssh_password = None
+            if v: print(f"[DEBUG] HOST-SSH-001: key verified OK — key auth now active")
+ 
+            return {
+                "success":  True,
+                "key_path": str(key_path),
+                "message":  (
+                    f"SSH key generated and verified. "
+                    f"Private key: {key_path}. "
+                    f"Connect with: ssh -i {key_path} "
+                    f"{self.ssh_user}@{self.ssh_host}"
+                ),
+            }
+ 
+        except Exception as e:
+            return {
+                "success": False,
+                "key_path": None,
+                "message": f"Key generation failed ({e}). SSH config unchanged.",
+            }
+ 
+    def _dry_run_ssh001_warning(self) -> str:
+        """
+        Returns a prominent warning message for HOST-SSH-001 in dry-run mode
+        when the user is currently authenticating with a password.
+        """
+        if self.ssh_key:
+            return "Would apply PermitRootLogin prohibit-password (SSH key already configured)."
+ 
+        stamp     = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d")
+        host_slug = (self.ssh_host or "server").replace(".", "-").replace(":", "-")
+        key_dir   = self._key_store_dir()
+        key_name  = f"{host_slug}_{stamp}.pem"
+ 
+        return (
+            f"\n  ⚠️  PASSWORD → KEY MIGRATION REQUIRED\n"
+            f"  This fix disables root password login (PermitRootLogin prohibit-password).\n"
+            f"  Since you are using --ssh-password, StackSentry will first:\n"
+            f"\n"
+            f"  Step 1: Generate Ed25519 key pair locally\n"
+            f"          Private key → {key_dir / key_name}\n"
+            f"          Public key  → {key_dir / key_name.replace('.pem', '.pub')}\n"
+            f"\n"
+            f"  Step 2: Install public key on {self.ssh_host}\n"
+            f"          $ mkdir -p ~/.ssh && chmod 700 ~/.ssh\n"
+            f"          $ echo 'ssh-ed25519 ...' >> ~/.ssh/authorized_keys\n"
+            f"          $ chmod 600 ~/.ssh/authorized_keys\n"
+            f"\n"
+            f"  Step 3: Verify key login works (test connection before changing sshd)\n"
+            f"\n"
+            f"  Step 4: Apply sshd hardening\n"
+            f"          $ cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak\n"
+            f"          $ sed -i 's/PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config\n"
+            f"          $ sshd -t  (validate config before reload)\n"
+            f"          $ systemctl restart sshd\n"
+            f"\n"
+            f"  After applying, connect with:\n"
+            f"  ssh -i {key_dir / key_name} {self.ssh_user}@{self.ssh_host}\n"
+        )
+ 
     def _open_ssh_client(self):
+        auth = "key" if self.ssh_key else "password"
+        if self.verbose:
+            print(f"[DEBUG] AutoFixer: SSH connect → "
+                  f"{self.ssh_user}@{self.ssh_host} [{auth}]")
         try:
             import paramiko
             c = paramiko.SSHClient()
@@ -373,8 +571,12 @@ class AutoFixer:
             if self.ssh_password: kw["password"] = self.ssh_password
             if self.ssh_key:      kw["key_filename"] = self.ssh_key
             c.connect(**kw)
+            if self.verbose:
+                print("[DEBUG] AutoFixer: SSH connected ✅")
             return c
-        except Exception:
+        except Exception as e:
+            if self.verbose:
+                print(f"[DEBUG] AutoFixer: SSH failed: {e!r}")
             return None
  
     def _fix_one(self, check_id: str, check_name: str, layer: str,
@@ -391,13 +593,29 @@ class AutoFixer:
         if self.ssh_host and check_id in FIX_REGISTRY:
             commands = FIX_REGISTRY[check_id]()
             if self.dry_run:
-                # Show what WOULD run without executing
+                # HOST-SSH-001 gets a prominent warning about auth method change
+                if check_id == "HOST-SSH-001":
+                    msg = self._dry_run_ssh001_warning()
+                else:
+                    msg = f"Would run {len(commands)} SSH command(s) on {self.ssh_host}"
                 return FixResult(
                     check_id=check_id, check_name=check_name, layer=layer,
                     status="would_fix",
-                    message=f"Would run {len(commands)} SSH command(s) on {self.ssh_host}",
+                    message=msg,
                     commands_run=commands,
                 )
+            # HOST-SSH-001: generate + install SSH key BEFORE applying prohibit-password
+            # This prevents the user from being locked out after the fix runs.
+            if check_id == "HOST-SSH-001" and shared_client:
+                key_result = self._ensure_ssh_key(shared_client)
+                if not key_result["success"]:
+                    return FixResult(
+                        check_id=check_id, check_name=check_name, layer=layer,
+                        status="failed",
+                        message=key_result["message"],
+                    )
+                if self.verbose:
+                    print(f"  🔑 SSH key generated and verified: {key_result['key_path']}")
             return self._execute_fix(check_id, check_name, layer, commands, shared_client)
  
         # File-based fix (--dockerfile / --compose-file / --nginx-conf)
@@ -516,6 +734,7 @@ class AutoFixer:
         if not p.exists():
             return FixResult(check_id, check_name, "container", "failed",
                              f"Dockerfile not found: {dockerfile_path}")
+        if self.verbose: print(f"[DEBUG] AutoFixer: editing Dockerfile: {p}")
         content  = p.read_text(encoding="utf-8")
         original = content
         changes  = []
@@ -572,6 +791,7 @@ class AutoFixer:
         if not p.exists():
             return FixResult(check_id, check_name, "container", "failed",
                              f"docker-compose.yml not found: {compose_path}")
+        if self.verbose: print(f"[DEBUG] AutoFixer: editing compose file: {p}")
         try:
             import yaml
         except ImportError:
@@ -617,6 +837,7 @@ class AutoFixer:
         if not p.exists():
             return FixResult(check_id, check_name, "webserver", "failed",
                              f"nginx.conf not found: {nginx_conf_path}")
+        if self.verbose: print(f"[DEBUG] AutoFixer: editing nginx.conf: {p}")
         content  = p.read_text(encoding="utf-8")
         original = content
         changes  = []

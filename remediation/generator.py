@@ -291,6 +291,7 @@ class PatchGenerator:
                 api_key=self.api_key,
                 max_retries=self.max_retries,
                 retry_delay=self.retry_delay,
+                verbose=self.verbose,
             )
             if patch_data:
                 is_llm = True
@@ -484,3 +485,4 @@ class PatchGenerator:
         manifest_path.write_text(
             json.dumps(manifest, indent=2), encoding="utf-8"
         )
+ 

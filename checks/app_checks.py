@@ -230,7 +230,20 @@ def check_admin_endpoints(http_scanner: HttpScanner, verbose: bool = False) -> C
       - 403 / 401 / 404 / redirect → PASS (properly blocked or absent)
     """
     meta = _meta("APP-ADMIN-001")
-    admin_paths = ["/admin", "/debug", "/test", "/wp-admin"]
+    # PHP/CMS-aware admin paths — covers WordPress, Joomla, phpMyAdmin,
+    # cPanel shared hosting, and generic PHP admin conventions
+    admin_paths = [
+        "/admin",           # generic
+        "/admin/index.php", # generic PHP
+        "/debug",           # dev endpoints
+        "/test",            # dev endpoints
+        "/wp-admin",        # WordPress
+        "/wp-login.php",    # WordPress login
+        "/administrator",   # Joomla
+        "/phpmyadmin",      # phpMyAdmin (most attacked PHP path)
+        "/pma",             # phpMyAdmin alias
+        "/cpanel",          # cPanel shared hosting
+    ]
  
     # Step 1: Get homepage body length as SPA baseline
     homepage_len = None
@@ -244,6 +257,8 @@ def check_admin_endpoints(http_scanner: HttpScanner, verbose: bool = False) -> C
  
     confirmed_exposed = []   # 200 + unique body — genuinely accessible
     spa_ambiguous     = []   # 200 + same as homepage — SPA shell, unclear
+    responded         = []   # paths that gave ANY HTTP response
+    errored           = []   # paths that threw connection exceptions
  
     for path in admin_paths:
         url = f"{http_scanner.base_url.rstrip('/')}{path}"
@@ -269,10 +284,14 @@ def check_admin_endpoints(http_scanner: HttpScanner, verbose: bool = False) -> C
                     if verbose:
                         print(f"[DEBUG] APP-ADMIN-001: {path} has unique content — likely real endpoint")
             # 401, 403, 404, 3xx all indicate the path is properly handled
+            responded.append(path)
         except Exception as e:
             if verbose:
                 print(f"[DEBUG] APP-ADMIN-001: exception on {path}: {e!r}")
+            errored.append(path)
             continue
+ 
+    all_failed = len(responded) == 0 and len(errored) > 0
  
     if confirmed_exposed:
         status  = Status.FAIL
@@ -283,6 +302,10 @@ def check_admin_endpoints(http_scanner: HttpScanner, verbose: bool = False) -> C
         details = (f"Admin path(s) return 200 with SPA shell content "
                    f"({', '.join(spa_ambiguous)}). Likely a login wall — "
                    f"verify these paths are properly authenticated.")
+    elif all_failed:
+        status  = Status.WARN
+        details = (f"Could not connect to any of {len(errored)} admin path(s). "
+                   "Server may be blocking requests. Verify manually.")
     else:
         status  = Status.PASS
         details = "Admin paths not accessible (404/403/redirect). No exposure detected."

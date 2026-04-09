@@ -487,6 +487,14 @@ def run_from_args(args: SimpleNamespace) -> None:
         vprint(args.verbose, f"Creating HttpScanner for target {args.target!r}")
     track_scan_started(args.mode)
     http_scanner = HttpScanner(args.target, timeout=10, scan_result=scan_result)
+ 
+    # Detect application stack for stack-aware patches
+    stack_info = http_scanner.detect_stack()
+    if args.verbose:
+        vprint(args.verbose, f"Stack detected: language={stack_info["language"]}, "
+               f"webserver={stack_info["webserver"]}, "
+               f"is_php={stack_info["is_php"]}, "
+               f"shared_hosting={stack_info["is_shared_hosting"]}")
     
     # ───────── MODE FLAGS ─────────
     quick_mode = args.mode == "quick"
@@ -717,7 +725,10 @@ def run_from_args(args: SimpleNamespace) -> None:
                 vprint(verbose, f"Output directory: {patch_dir}/")
  
             generator = PatchGenerator(use_llm=use_llm, verbose=verbose)
-            patches   = generator.generate_all(scan_result, output_dir=patch_dir)
+            patches   = generator.generate_all(
+                scan_result, output_dir=patch_dir,
+                stack=stack_info.get("language", ""),
+            )
  
             llm_count  = sum(1 for p in patches if p.is_llm)
             tmpl_count = len(patches) - llm_count
