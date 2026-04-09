@@ -1,26 +1,26 @@
 """
 test_branch_logic.py — Branch logic correctness tests.
-
+ 
 Proves that the elif/else bug has been fixed:
 FAIL must be returned when the check actually fails.
 PASS must not overwrite FAIL.
-
+ 
 Each test simulates a bad configuration, runs the check with mocked
 scanners, and asserts the result is FAIL — not PASS.
 """
-
+ 
 import pytest
 from unittest.mock import patch, MagicMock, call
 from sec_audit.results import Status
-
-
+ 
+ 
 # ─────────────────────────────────────────────────────────────────────────────
 # Container check branch logic
 # ─────────────────────────────────────────────────────────────────────────────
-
+ 
 class TestContainerBranchLogic:
     """Container checks must return FAIL when the scanner reports a bad configuration."""
-
+ 
     def _make_scanner(self, info_overrides: dict):
         """Build a mock DockerScanner with specified container info."""
         default_info = {
@@ -38,7 +38,7 @@ class TestContainerBranchLogic:
         scanner.get_target_container.return_value = MagicMock()
         scanner.get_container_info.return_value = default_info
         return scanner
-
+ 
     @patch("checks.container_checks.DockerScanner")
     def test_root_user_returns_fail(self, mock_cls):
         """check_non_root_user must FAIL when container user is root."""
@@ -49,7 +49,7 @@ class TestContainerBranchLogic:
             f"Expected FAIL for root user, got {result.status}. "
             "The elif bug may still be present."
         )
-
+ 
     @patch("checks.container_checks.DockerScanner")
     def test_empty_user_returns_fail(self, mock_cls):
         """check_non_root_user must FAIL when container user is empty string."""
@@ -57,7 +57,7 @@ class TestContainerBranchLogic:
         mock_cls.return_value = self._make_scanner({"user": ""})
         result = check_non_root_user(docker_host="unix:///var/run/docker.sock")
         assert result.status == Status.FAIL
-
+ 
     @patch("checks.container_checks.DockerScanner")
     def test_uid_zero_returns_fail(self, mock_cls):
         """check_non_root_user must FAIL when container user is UID 0."""
@@ -65,7 +65,7 @@ class TestContainerBranchLogic:
         mock_cls.return_value = self._make_scanner({"user": "0"})
         result = check_non_root_user(docker_host="unix:///var/run/docker.sock")
         assert result.status == Status.FAIL
-
+ 
     @patch("checks.container_checks.DockerScanner")
     def test_non_root_user_returns_pass(self, mock_cls):
         """check_non_root_user must PASS when container user is non-root."""
@@ -73,7 +73,7 @@ class TestContainerBranchLogic:
         mock_cls.return_value = self._make_scanner({"user": "appuser"})
         result = check_non_root_user(docker_host="unix:///var/run/docker.sock")
         assert result.status == Status.PASS
-
+ 
     @patch("checks.container_checks.DockerScanner")
     def test_secrets_in_env_returns_fail(self, mock_cls):
         """check_no_secrets must FAIL when env contains secret-like variable names."""
@@ -83,7 +83,7 @@ class TestContainerBranchLogic:
         })
         result = check_no_secrets(docker_host="unix:///var/run/docker.sock")
         assert result.status == Status.FAIL
-
+ 
     @patch("checks.container_checks.DockerScanner")
     def test_no_secrets_in_env_returns_pass(self, mock_cls):
         """check_no_secrets must PASS when env contains no secret-like names."""
@@ -93,7 +93,7 @@ class TestContainerBranchLogic:
         })
         result = check_no_secrets(docker_host="unix:///var/run/docker.sock")
         assert result.status == Status.PASS
-
+ 
     @patch("checks.container_checks.DockerScanner")
     def test_no_healthcheck_returns_warn(self, mock_cls):
         """check_health_checks must WARN when no healthcheck is configured."""
@@ -101,7 +101,7 @@ class TestContainerBranchLogic:
         mock_cls.return_value = self._make_scanner({"healthcheck": None})
         result = check_health_checks(docker_host="unix:///var/run/docker.sock")
         assert result.status == Status.WARN
-
+ 
     @patch("checks.container_checks.DockerScanner")
     def test_healthcheck_present_returns_pass(self, mock_cls):
         """check_health_checks must PASS when healthcheck is configured."""
@@ -111,7 +111,7 @@ class TestContainerBranchLogic:
         })
         result = check_health_checks(docker_host="unix:///var/run/docker.sock")
         assert result.status == Status.PASS
-
+ 
     @patch("checks.container_checks.DockerScanner")
     def test_no_resource_limits_returns_warn(self, mock_cls):
         """check_resource_limits must WARN when no CPU or memory limit is set."""
@@ -122,7 +122,7 @@ class TestContainerBranchLogic:
         })
         result = check_resource_limits(docker_host="unix:///var/run/docker.sock")
         assert result.status == Status.WARN
-
+ 
     @patch("checks.container_checks.DockerScanner")
     def test_resource_limits_present_returns_pass(self, mock_cls):
         """check_resource_limits must PASS when memory limit is set."""
@@ -133,28 +133,28 @@ class TestContainerBranchLogic:
         })
         result = check_resource_limits(docker_host="unix:///var/run/docker.sock")
         assert result.status == Status.PASS
-
-
+ 
+ 
 # ─────────────────────────────────────────────────────────────────────────────
 # Host check branch logic
 # ─────────────────────────────────────────────────────────────────────────────
-
+ 
 class TestHostBranchLogic:
     """Host checks must return FAIL when SSH commands report bad configuration."""
-
+ 
     SSH_CREDS = {
         "ssh_host": "192.168.1.100",
         "ssh_user": "admin",
         "ssh_key": "/home/user/.ssh/id_rsa",
     }
-
+ 
     def _mock_ssh(self, command_output: str, exit_code: int = 0):
         scanner = MagicMock()
         scanner.connect.return_value = MagicMock()
         scanner.run_command.return_value = (command_output, exit_code)
         scanner.detect_os_version.return_value = "Ubuntu 22.04 LTS"
         return scanner
-
+ 
     @patch("checks.host_checks.SSHScanner")
     def test_ssh_permit_root_yes_returns_fail(self, mock_cls):
         """check_ssh_hardening must FAIL when PermitRootLogin is yes."""
@@ -164,7 +164,7 @@ class TestHostBranchLogic:
         assert result.status == Status.FAIL, (
             f"Expected FAIL for PermitRootLogin yes, got {result.status}."
         )
-
+ 
     @patch("checks.host_checks.SSHScanner")
     def test_ssh_permit_root_no_returns_pass(self, mock_cls):
         """check_ssh_hardening must PASS when PermitRootLogin is no."""
@@ -172,7 +172,7 @@ class TestHostBranchLogic:
         mock_cls.return_value = self._mock_ssh("PermitRootLogin no")
         result = check_ssh_hardening(**self.SSH_CREDS)
         assert result.status == Status.PASS
-
+ 
     @patch("checks.host_checks.SSHScanner")
     def test_firewall_inactive_returns_fail(self, mock_cls):
         """check_firewall must FAIL when ufw reports inactive."""
@@ -180,7 +180,7 @@ class TestHostBranchLogic:
         mock_cls.return_value = self._mock_ssh("Status: inactive")
         result = check_firewall(**self.SSH_CREDS)
         assert result.status == Status.FAIL
-
+ 
     @patch("checks.host_checks.SSHScanner")
     def test_firewall_active_returns_pass(self, mock_cls):
         """check_firewall must PASS when ufw reports active."""
@@ -188,7 +188,7 @@ class TestHostBranchLogic:
         mock_cls.return_value = self._mock_ssh("Status: active")
         result = check_firewall(**self.SSH_CREDS)
         assert result.status == Status.PASS
-
+ 
     @patch("checks.host_checks.SSHScanner")
     def test_auto_updates_enabled_returns_pass(self, mock_cls):
         """check_auto_updates must PASS when unattended-upgrades is enabled."""
@@ -196,7 +196,7 @@ class TestHostBranchLogic:
         mock_cls.return_value = self._mock_ssh("enabled")
         result = check_auto_updates(**self.SSH_CREDS)
         assert result.status == Status.PASS
-
+ 
     @patch("checks.host_checks.SSHScanner")
     def test_auto_updates_disabled_returns_warn(self, mock_cls):
         """check_auto_updates must WARN when unattended-upgrades is disabled."""
@@ -204,7 +204,7 @@ class TestHostBranchLogic:
         mock_cls.return_value = self._mock_ssh("disabled")
         result = check_auto_updates(**self.SSH_CREDS)
         assert result.status == Status.WARN
-
+ 
     @patch("checks.host_checks.SSHScanner")
     def test_gunicorn_running_as_root_returns_fail(self, mock_cls):
         """check_gunicorn_user must FAIL when gunicorn runs as root."""
@@ -212,7 +212,7 @@ class TestHostBranchLogic:
         mock_cls.return_value = self._mock_ssh("root")
         result = check_gunicorn_user(**self.SSH_CREDS)
         assert result.status == Status.FAIL
-
+ 
     @patch("checks.host_checks.SSHScanner")
     def test_gunicorn_running_as_non_root_returns_pass(self, mock_cls):
         """check_gunicorn_user must PASS when gunicorn runs as non-root user."""
@@ -220,7 +220,7 @@ class TestHostBranchLogic:
         mock_cls.return_value = self._mock_ssh("webuser")
         result = check_gunicorn_user(**self.SSH_CREDS)
         assert result.status == Status.PASS
-
+ 
     @patch("checks.host_checks.SSHScanner")
     def test_world_writable_ssh_files_returns_warn(self, mock_cls):
         """check_permissions must WARN when world-writable SSH files are found."""
@@ -228,7 +228,7 @@ class TestHostBranchLogic:
         mock_cls.return_value = self._mock_ssh("3")  # 3 world-writable files
         result = check_permissions(**self.SSH_CREDS)
         assert result.status == Status.WARN
-
+ 
     @patch("checks.host_checks.SSHScanner")
     def test_no_world_writable_ssh_files_returns_pass(self, mock_cls):
         """check_permissions must PASS when no world-writable SSH files exist."""
@@ -236,15 +236,15 @@ class TestHostBranchLogic:
         mock_cls.return_value = self._mock_ssh("0")
         result = check_permissions(**self.SSH_CREDS)
         assert result.status == Status.PASS
-
-
+ 
+ 
 # ─────────────────────────────────────────────────────────────────────────────
 # App check branch logic
 # ─────────────────────────────────────────────────────────────────────────────
-
+ 
 class TestAppBranchLogic:
     """App layer checks must return correct status based on HTTP response content."""
-
+ 
     def _mock_scanner(self, text="", headers=None, cookies=None, status_code=200):
         resp = MagicMock()
         resp.status_code = status_code
@@ -257,28 +257,28 @@ class TestAppBranchLogic:
         scanner.session = MagicMock()
         scanner.session.get.return_value = resp
         return scanner
-
+ 
     def test_debug_marker_in_body_returns_fail(self):
         """check_debug_mode must FAIL when debug traceback is in the response body."""
         from checks.app_checks import check_debug_mode
         scanner = self._mock_scanner(text="Traceback (most recent call last): ...")
         result = check_debug_mode(scanner)
         assert result.status == Status.FAIL
-
+ 
     def test_no_debug_marker_returns_pass(self):
         """check_debug_mode must PASS when no debug markers are in the response body."""
         from checks.app_checks import check_debug_mode
         scanner = self._mock_scanner(text="<html><body>Welcome</body></html>")
         result = check_debug_mode(scanner)
         assert result.status == Status.PASS
-
+ 
     def test_hsts_missing_returns_fail(self):
         """check_hsts_header must FAIL when HSTS header is absent."""
         from checks.webserver_checks import check_hsts_header
         scanner = self._mock_scanner(headers={})
         result = check_hsts_header(scanner)
         assert result.status == Status.FAIL
-
+ 
     def test_hsts_strong_returns_pass(self):
         """check_hsts_header must PASS when HSTS has strong max-age."""
         from checks.webserver_checks import check_hsts_header
@@ -287,34 +287,121 @@ class TestAppBranchLogic:
         )
         result = check_hsts_header(scanner)
         assert result.status == Status.PASS
-
+ 
     def test_admin_endpoint_exposed_returns_fail(self):
-        """check_admin_endpoints must FAIL when /admin returns 200."""
+        """check_admin_endpoints must FAIL when /admin returns 200 with unique content."""
         from checks.app_checks import check_admin_endpoints
-        exposed_resp = MagicMock()
-        exposed_resp.status_code = 200
+        # Homepage returns 500 bytes
+        home_resp = MagicMock()
+        home_resp.status_code = 200
+        home_resp.content = b"x" * 500
+        home_resp.text = "homepage"
+        home_resp.headers = {}
+        home_resp.cookies = {}
+        # /admin returns 200 with DIFFERENT body (real admin page)
+        admin_resp = MagicMock()
+        admin_resp.status_code = 200
+        admin_resp.content = b"y" * 1200  # different length → genuinely exposed
         not_found_resp = MagicMock()
         not_found_resp.status_code = 404
+        not_found_resp.content = b""
         scanner = MagicMock()
         scanner.base_url = "http://test.example.com"
+        scanner.get_root.return_value = home_resp
         scanner.session = MagicMock()
         scanner.session.get.side_effect = [
-            exposed_resp,   # /admin → 200 (exposed)
+            admin_resp,     # /admin → 200 unique content
             not_found_resp, # /debug → 404
             not_found_resp, # /test → 404
             not_found_resp, # /wp-admin → 404
         ]
         result = check_admin_endpoints(scanner)
         assert result.status == Status.FAIL
-
+ 
+    def test_admin_endpoint_spa_shell_returns_warn(self):
+        """check_admin_endpoints must WARN when /admin returns 200 with same body as homepage (SPA)."""
+        from checks.app_checks import check_admin_endpoints
+        spa_body = b"x" * 81071  # same body length as homepage
+        home_resp = MagicMock()
+        home_resp.status_code = 200
+        home_resp.content = spa_body
+        home_resp.text = "spa shell"
+        home_resp.headers = {}
+        home_resp.cookies = {}
+        spa_resp = MagicMock()
+        spa_resp.status_code = 200
+        spa_resp.content = spa_body  # identical — SPA shell
+        scanner = MagicMock()
+        scanner.base_url = "http://test.example.com"
+        scanner.get_root.return_value = home_resp
+        scanner.session = MagicMock()
+        scanner.session.get.return_value = spa_resp
+        result = check_admin_endpoints(scanner)
+        assert result.status == Status.WARN
+ 
     def test_no_admin_endpoints_exposed_returns_pass(self):
         """check_admin_endpoints must PASS when no admin paths return 200."""
         from checks.app_checks import check_admin_endpoints
+        home_resp = MagicMock()
+        home_resp.status_code = 200
+        home_resp.content = b"x" * 500
+        home_resp.text = "homepage"
+        home_resp.headers = {}
+        home_resp.cookies = {}
         not_found_resp = MagicMock()
         not_found_resp.status_code = 404
+        not_found_resp.content = b""
         scanner = MagicMock()
         scanner.base_url = "http://test.example.com"
+        scanner.get_root.return_value = home_resp
         scanner.session = MagicMock()
         scanner.session.get.return_value = not_found_resp
         result = check_admin_endpoints(scanner)
         assert result.status == Status.PASS
+ 
+    def test_csrf_form_token_returns_pass(self):
+        """check_csrf_protection must PASS when a form CSRF token is present."""
+        from checks.app_checks import check_csrf_protection
+        scanner = self._mock_scanner(
+            text='<input name="csrfmiddlewaretoken" value="abc123">',
+            cookies=MagicMock(__iter__=lambda s: iter([]))
+        )
+        result = check_csrf_protection(scanner)
+        assert result.status == Status.PASS
+ 
+    def test_csrf_xsrf_cookie_returns_pass(self):
+        """check_csrf_protection must PASS when an XSRF-TOKEN cookie is present (SPA/Angular)."""
+        from checks.app_checks import check_csrf_protection
+        xsrf_cookie = MagicMock()
+        xsrf_cookie.name = "XSRF-TOKEN"
+        scanner = self._mock_scanner(
+            text="<html><body>SPA app</body></html>",
+            headers={"Set-Cookie": "XSRF-TOKEN=abc123; Path=/"},
+        )
+        # Mock cookies iterator to include the xsrf cookie
+        scanner.get_root.return_value.cookies = [xsrf_cookie]
+        result = check_csrf_protection(scanner)
+        assert result.status == Status.PASS
+ 
+    def test_csrf_set_cookie_header_xsrf_returns_pass(self):
+        """check_csrf_protection must PASS when Set-Cookie header contains xsrf token."""
+        from checks.app_checks import check_csrf_protection
+        scanner = self._mock_scanner(
+            text="<html><body>app</body></html>",
+            headers={"Set-Cookie": "xsrf:abc123; Path=/; Secure; HttpOnly"},
+            cookies=MagicMock(__iter__=lambda s: iter([]))
+        )
+        result = check_csrf_protection(scanner)
+        assert result.status == Status.PASS
+ 
+    def test_csrf_no_protection_returns_fail(self):
+        """check_csrf_protection must FAIL when no CSRF tokens or XSRF cookies are found."""
+        from checks.app_checks import check_csrf_protection
+        scanner = self._mock_scanner(
+            text="<html><body>plain page</body></html>",
+            headers={},
+            cookies=MagicMock(__iter__=lambda s: iter([]))
+        )
+        result = check_csrf_protection(scanner)
+        assert result.status == Status.FAIL
+ 

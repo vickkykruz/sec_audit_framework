@@ -1,6 +1,6 @@
 """
 Web Application Layer Security Checks (6 checks)
-
+ 
 1. Debug mode disabled
 2. Secure session cookies (HttpOnly/Secure/SameSite)
 3. CSRF protection enabled
@@ -8,25 +8,25 @@ Web Application Layer Security Checks (6 checks)
 5. Rate limiting configured
 6. Strong password policy
 """
-
-
+ 
+ 
 from sec_audit.results import CheckResult, Status, Severity
 from scanners.http_scanner import HttpScanner
 from sec_audit.config import CHECKS
-
-
+ 
+ 
 def _meta(check_id: str):
     """Helper to pull metadata from CHECKS by id."""
     for c in CHECKS:
         if c["id"] == check_id:
             return c
     raise KeyError(f"Unknown check id: {check_id}")
-
-
+ 
+ 
 def check_debug_mode(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
     """
     APP-DEBUG-001: Heuristic debug mode detection.
-
+ 
     Logic (simple but real):
     - Fetch root page.
     - Look for typical traceback/debug strings in HTML body, such as:
@@ -58,7 +58,7 @@ def check_debug_mode(http_scanner: HttpScanner, verbose: bool = False) -> CheckR
             print(f"[DEBUG] APP-DEBUG-001: exception {e!r}")
         status = Status.ERROR
         details = f"HTTP error while checking debug mode: {e!r}"
-
+ 
     return CheckResult(
         id=meta["id"],
         layer=meta["layer"],
@@ -72,7 +72,7 @@ def check_debug_mode(http_scanner: HttpScanner, verbose: bool = False) -> CheckR
 def check_secure_cookies(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
     """
     APP-COOKIE-001: Secure session cookies.
-
+ 
     Logic:
     - Fetch root page.
     - Inspect response.cookies (Set-Cookie headers).
@@ -94,14 +94,14 @@ def check_secure_cookies(http_scanner: HttpScanner, verbose: bool = False) -> Ch
                 f"[DEBUG] APP-COOKIE-001: cookies={list(cookies.keys())}, "
                 f"Set-Cookie='{set_cookie_headers}'"
             )
-
+ 
         if not cookies:
             status = Status.WARN
             details = "No cookies observed on root response; cannot assess session cookie security."
         else:
             has_secure = "secure" in combined
             has_httponly = "httponly" in combined
-
+ 
             if has_secure and has_httponly:
                 status = Status.PASS
                 details = "At least one cookie appears to use both Secure and HttpOnly flags."
@@ -116,7 +116,7 @@ def check_secure_cookies(http_scanner: HttpScanner, verbose: bool = False) -> Ch
             print(f"[DEBUG] APP-COOKIE-001: exception {e!r}")
         status = Status.ERROR
         details = f"HTTP error while checking secure cookies: {e!r}"
-
+ 
     return CheckResult(
         id=meta["id"],
         layer=meta["layer"],
@@ -128,34 +128,89 @@ def check_secure_cookies(http_scanner: HttpScanner, verbose: bool = False) -> Ch
     
     
 def check_csrf_protection(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
-    """APP-CSRF-001: CSRF protection enabled."""
+    """APP-CSRF-001: CSRF protection enabled.
+ 
+    Uses three detection strategies to cover traditional and SPA frameworks:
+ 
+    Strategy 1 — Form tokens (Django, Flask-WTF, Laravel):
+      Looks for csrfmiddlewaretoken, csrf_token fields in the HTML body.
+ 
+    Strategy 2 — Response headers (API-first apps):
+      Looks for X-CSRF-Token, X-Frame-Options (indirect CSRF mitigation).
+ 
+    Strategy 3 — Cookie-based XSRF (Angular, React, Vue SPAs):
+      Angular sets XSRF-TOKEN cookie. Any cookie name/value containing
+      'xsrf' or 'csrf' indicates SPA-framework CSRF protection.
+      This is the standard approach for all modern SPA frameworks.
+    """
     meta = _meta("APP-CSRF-001")
     try:
         if verbose:
             print("[DEBUG] APP-CSRF-001: fetching root URL to look for CSRF hints...")
         resp = http_scanner.get_root()
         text = resp.text.lower()
-        
-        # Simple heuristic: look for CSRF token fields in forms
-        csrf_indicators = [
+ 
+        # Strategy 1: HTML form token patterns
+        form_indicators = [
             'name="csrf_token"',
             "csrfmiddlewaretoken",
             "x-csrftoken",
             "csrf-token",
+            "_token",           # Laravel
+            "authenticity_token",  # Rails
         ]
-
-        has_csrf_patterns = any(ind in text for ind in csrf_indicators)
+        strategy1 = any(ind in text for ind in form_indicators)
+        if verbose and strategy1:
+            matched = [i for i in form_indicators if i in text]
+            print(f"[DEBUG] APP-CSRF-001: Strategy 1 (form token) matched: {matched}")
+ 
+        # Strategy 2: Response headers indicating CSRF protection
+        resp_headers_lower = {k.lower(): v.lower() for k, v in resp.headers.items()}
+        header_indicators  = ["x-csrf-token", "x-xsrf-token"]
+        strategy2 = any(h in resp_headers_lower for h in header_indicators)
+        if verbose and strategy2:
+            print(f"[DEBUG] APP-CSRF-001: Strategy 2 (response header) matched")
+ 
+        # Strategy 3: Cookie-based XSRF token (Angular, Vue, React SPAs)
+        strategy3        = False
+        xsrf_cookie_name = None
+        for cookie in resp.cookies:
+            if "xsrf" in cookie.name.lower() or "csrf" in cookie.name.lower():
+                strategy3        = True
+                xsrf_cookie_name = cookie.name
+                break
+        # Also check Set-Cookie header directly (covers httponly xsrf tokens)
+        set_cookie = resp.headers.get("Set-Cookie", "").lower()
+        if not strategy3 and ("xsrf" in set_cookie or "csrf" in set_cookie):
+            strategy3        = True
+            xsrf_cookie_name = "xsrf/csrf cookie in Set-Cookie header"
         if verbose:
-            print(f"[DEBUG] APP-CSRF-001: csrf_indicators_found={has_csrf_patterns}")
-        
-        status = Status.PASS if has_csrf_patterns else Status.FAIL
-        details = f"CSRF patterns {'detected' if status == Status.PASS else 'missing'}."
+            print(f"[DEBUG] APP-CSRF-001: Strategy 3 (XSRF cookie) found={strategy3}"
+                  f"{f', cookie={xsrf_cookie_name!r}' if xsrf_cookie_name else ''}")
+ 
+        has_protection = strategy1 or strategy2 or strategy3
+ 
+        if has_protection:
+            methods = []
+            if strategy1: methods.append("form token")
+            if strategy2: methods.append("response header")
+            if strategy3: methods.append(f"XSRF cookie ({xsrf_cookie_name})")
+            status  = Status.PASS
+            details = f"CSRF protection detected via: {', '.join(methods)}."
+        else:
+            status  = Status.FAIL
+            details = ("No CSRF protection detected. No form tokens, CSRF headers, "
+                       "or XSRF cookies found. Enable CSRF middleware.")
+ 
+        if verbose:
+            print(f"[DEBUG] APP-CSRF-001: result={status.value}, {details}")
+ 
     except Exception as e:
         if verbose:
             print(f"[DEBUG] APP-CSRF-001: exception {e!r}")
-        status = Status.ERROR
+        status  = Status.ERROR
         details = f"HTTP error while checking CSRF protection: {e}"
-    
+ 
     return CheckResult(
         id=meta["id"], layer=meta["layer"], name=meta["name"],
         status=status, severity=Severity[meta["severity"]], details=details
@@ -163,34 +218,75 @@ def check_csrf_protection(http_scanner: HttpScanner, verbose: bool = False) -> C
     
     
 def check_admin_endpoints(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
-    """APP-ADMIN-001: No exposed admin endpoints."""
+    """APP-ADMIN-001: No exposed admin endpoints.
+ 
+    SPA-aware: Single Page Applications (React, Angular, Vue) return HTTP 200
+    for every route because routing is handled client-side. A 200 response with
+    the same body as the homepage is the SPA shell, not a real admin page.
+ 
+    Logic:
+      - 200 + unique content  → FAIL  (real admin page is accessible)
+      - 200 + same as homepage → WARN  (SPA shell, likely just login wall)
+      - 403 / 401 / 404 / redirect → PASS (properly blocked or absent)
+    """
     meta = _meta("APP-ADMIN-001")
     admin_paths = ["/admin", "/debug", "/test", "/wp-admin"]
-    exposed = []
-    
+ 
+    # Step 1: Get homepage body length as SPA baseline
+    homepage_len = None
+    try:
+        home_resp = http_scanner.get_root()
+        homepage_len = len(home_resp.content)
+        if verbose:
+            print(f"[DEBUG] APP-ADMIN-001: homepage baseline body_len={homepage_len}")
+    except Exception:
+        pass
+ 
+    confirmed_exposed = []   # 200 + unique body — genuinely accessible
+    spa_ambiguous     = []   # 200 + same as homepage — SPA shell, unclear
+ 
     for path in admin_paths:
         url = f"{http_scanner.base_url.rstrip('/')}{path}"
         try:
             if verbose:
                 print(f"[DEBUG] APP-ADMIN-001: GET {url}")
             resp = http_scanner.session.get(url, timeout=3, allow_redirects=False)
+            body_len = len(resp.content)
             if verbose:
                 print(
                     f"[DEBUG] APP-ADMIN-001: {path} status={resp.status_code}, "
-                    f"Location={resp.headers.get('Location')!r}"
+                    f"body_len={body_len}, Location={resp.headers.get('Location')!r}"
                 )
-            
-            # 200 without redirect: likely exposed            
+ 
             if resp.status_code == 200:
-                exposed.append(path)
+                # Check if this is a SPA returning the same shell as homepage
+                if homepage_len is not None and body_len == homepage_len:
+                    spa_ambiguous.append(path)
+                    if verbose:
+                        print(f"[DEBUG] APP-ADMIN-001: {path} matches SPA homepage — likely login wall")
+                else:
+                    confirmed_exposed.append(path)
+                    if verbose:
+                        print(f"[DEBUG] APP-ADMIN-001: {path} has unique content — likely real endpoint")
+            # 401, 403, 404, 3xx all indicate the path is properly handled
         except Exception as e:
             if verbose:
                 print(f"[DEBUG] APP-ADMIN-001: exception on {path}: {e!r}")
             continue
-    
-    status = Status.FAIL if exposed else Status.PASS
-    details = f"Admin paths {'exposed: ' + ', '.join(exposed) if exposed else 'none found'}."
-    
+ 
+    if confirmed_exposed:
+        status  = Status.FAIL
+        details = (f"Admin endpoint(s) with unique content exposed: "
+                   f"{', '.join(confirmed_exposed)}. Verify and restrict access.")
+    elif spa_ambiguous:
+        status  = Status.WARN
+        details = (f"Admin path(s) return 200 with SPA shell content "
+                   f"({', '.join(spa_ambiguous)}). Likely a login wall — "
+                   f"verify these paths are properly authenticated.")
+    else:
+        status  = Status.PASS
+        details = "Admin paths not accessible (404/403/redirect). No exposure detected."
+ 
     return CheckResult(
         id=meta["id"], layer=meta["layer"], name=meta["name"],
         status=status, severity=Severity[meta["severity"]], details=details
