@@ -1,6 +1,6 @@
 """
 Web Server Layer Checks - Nginx/Apache (6 checks)
-
+ 
 1. HSTS header present and strong
 2. Security headers (CSP, XFO, XCTO)
 3. TLS 1.2+ with strong ciphers
@@ -8,27 +8,27 @@ Web Server Layer Checks - Nginx/Apache (6 checks)
 5. Directory listing disabled
 6. Request size limits set
 """
-
-
+ 
+ 
 from typing import Optional
-
+ 
 from sec_audit.results import CheckResult, Status, Severity
 from scanners.http_scanner import HttpScanner
 from scanners.nginx_scanner import NginxConfigScanner
 from sec_audit.config import CHECKS
-
-
+ 
+ 
 def _meta(check_id: str):
     for c in CHECKS:
         if c["id"] == check_id:
             return c
     raise KeyError(f"Unknown check id: {check_id}")
-
-
+ 
+ 
 def check_hsts_header(http_scanner: HttpScanner, verbose: bool = False) -> CheckResult:
     """
     WS-HSTS-001: HSTS header enabled.
-
+ 
     Logic:
     - Send GET (or HEAD) to root.
     - Look for Strict-Transport-Security header.
@@ -43,7 +43,7 @@ def check_hsts_header(http_scanner: HttpScanner, verbose: bool = False) -> Check
         
         if verbose:
             print(f"[DEBUG] WS-HSTS-001: Strict-Transport-Security={sts!r}")    
-
+ 
         if not sts:
             status = Status.FAIL
             details = "Strict-Transport-Security header is missing."
@@ -58,7 +58,7 @@ def check_hsts_header(http_scanner: HttpScanner, verbose: bool = False) -> Check
                         max_age_value = int(value)
                     except Exception:
                         max_age_value = None
-
+ 
             if max_age_value is not None and max_age_value >= 31536000:
                 status = Status.PASS
                 details = f"HSTS present with strong max-age={max_age_value}."
@@ -70,7 +70,7 @@ def check_hsts_header(http_scanner: HttpScanner, verbose: bool = False) -> Check
             print(f"[DEBUG] WS-HSTS-001: exception {e!r}")
         status = Status.ERROR
         details = f"HTTP error while checking HSTS header: {e!r}"
-
+ 
     return CheckResult(
         id=meta["id"],
         layer=meta["layer"],
@@ -258,76 +258,85 @@ def check_request_limits(http_scanner: HttpScanner, verbose: bool = False) -> Ch
 def check_nginx_hsts_config(path: Optional[str] = None, verbose: bool = False) -> CheckResult:
     """
     WS-CONF-HSTS: HSTS configured in nginx.conf.
+ 
+    Guard: returns WARN immediately (without touching NginxConfigScanner)
+    when no path is provided. This allows the check to be included in
+    every scan safely, even when --nginx-conf is not passed.
     """
     meta = _meta("WS-CONF-HSTS")
-    
+ 
+    # Guard — no path provided, return immediately without parsing
     if not path:
         if verbose:
-            print(f"[DEBUG] WS-CONF-HSTS: nginx.conf path not provided;")
+            print("[DEBUG] WS-CONF-HSTS: nginx.conf path not provided — skipping static check")
         return CheckResult(
             id=meta["id"], layer=meta["layer"], name=meta["name"],
             status=Status.WARN, severity=Severity[meta["severity"]],
-            details="nginx.conf path not provided; cannot statically verify HSTS.",
+            details="nginx.conf path not provided; pass --nginx-conf to enable static HSTS verification.",
         )
-
+ 
     try:
         scanner = NginxConfigScanner(path, verbose)
         scanner.load()
         has_hsts = scanner.has_security_header("Strict-Transport-Security")
-
+ 
         if verbose:
             print(f"[DEBUG] WS-CONF-HSTS: has_hsts={has_hsts}")
-
+ 
         if has_hsts:
-            status = Status.PASS
+            status  = Status.PASS
             details = "Strict-Transport-Security header is configured in nginx.conf."
         else:
-            status = Status.WARN
+            status  = Status.WARN
             details = "Strict-Transport-Security not found in nginx.conf; add HSTS at server or http level."
-
+ 
     except Exception as e:
         if verbose:
             print(f"[DEBUG] WS-CONF-HSTS: exception {e!r}")
-        status = Status.WARN
+        status  = Status.WARN
         details = f"Error parsing nginx.conf: {e}"
-    
+ 
     return CheckResult(
         id=meta["id"], layer=meta["layer"], name=meta["name"],
         status=status, severity=Severity[meta["severity"]], details=details
     )
         
-
+ 
 def check_nginx_csp_config(path: Optional[str] = None, verbose: bool = False) -> CheckResult:
     """
     WS-CONF-CSP: Content-Security-Policy configured in nginx.conf.
+ 
+    Guard: returns WARN immediately (without touching NginxConfigScanner)
+    when no path is provided.
     """
     meta = _meta("WS-CONF-CSP")
-    
+ 
+    # Guard — no path provided, return immediately without parsing
     if not path:
         if verbose:
-            print("[DEBUG] WS-CONF-CSP: nginx.conf path not provided")
+            print("[DEBUG] WS-CONF-CSP: nginx.conf path not provided — skipping static check")
         return CheckResult(
             id=meta["id"], layer=meta["layer"], name=meta["name"],
             status=Status.WARN, severity=Severity[meta["severity"]],
-            details="nginx.conf path not provided; cannot statically verify CSP.",
+            details="nginx.conf path not provided; pass --nginx-conf to enable static CSP verification.",
         )
-
+ 
     try:
         scanner = NginxConfigScanner(path, verbose)
-        scanner.load()
         if scanner.has_csp():
-            status = Status.PASS
+            status  = Status.PASS
             details = "Content-Security-Policy is configured in nginx.conf."
         else:
-            status = Status.WARN
-            details = "Content-Security-Policy not found in nginx.conf; define a CSP header for stricter frontend security."
-
+            status  = Status.WARN
+            details = ("Content-Security-Policy not found in nginx.conf; "
+                       "define a CSP header for stricter frontend security.")
+ 
     except Exception as e:
         if verbose:
             print(f"[DEBUG] WS-CONF-CSP: exception {e!r}")
-        status = Status.WARN
+        status  = Status.WARN
         details = f"Error parsing nginx.conf: {e}"
-        
+ 
     return CheckResult(
         id=meta["id"], layer=meta["layer"], name=meta["name"],
         status=status, severity=Severity[meta["severity"]], details=details
