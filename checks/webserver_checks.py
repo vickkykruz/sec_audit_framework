@@ -198,7 +198,7 @@ def check_directory_listing(http_scanner: HttpScanner, verbose: bool = False) ->
     try:
         exposed_dirs = []
         for path in test_paths:
-            url = f"{http_scanner.base_url.rstrip('/')}{path}"
+            url = f"{getattr(http_scanner, 'scan_root', http_scanner.base_url).rstrip('/')}{path}"
             
             try:
                 if verbose:

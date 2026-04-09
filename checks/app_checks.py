@@ -261,7 +261,7 @@ def check_admin_endpoints(http_scanner: HttpScanner, verbose: bool = False) -> C
     errored           = []   # paths that threw connection exceptions
  
     for path in admin_paths:
-        url = f"{http_scanner.base_url.rstrip('/')}{path}"
+        url = f"{getattr(http_scanner, 'scan_root', http_scanner.base_url).rstrip('/')}{path}"
         try:
             if verbose:
                 print(f"[DEBUG] APP-ADMIN-001: GET {url}")

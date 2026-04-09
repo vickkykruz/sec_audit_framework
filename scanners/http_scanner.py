@@ -30,6 +30,19 @@ class HttpScanner:
         self.session     = requests.Session()
         self.scan_result = scan_result
  
+        # scan_root: base used for path construction in checks.
+        # When the URL ends in a filename (e.g. /index.php), paths like
+        # /admin must be appended to the directory, not to the filename.
+        # e.g. https://example.com/app/index.php → scan_root = https://example.com/app
+        _last_segment = parsed.path.rstrip("/").split("/")[-1]
+        if "." in _last_segment:  # ends in a file (index.php, page.html, etc.)
+            _dir_path = "/".join(parsed.path.rstrip("/").split("/")[:-1])
+            self.scan_root = urlunparse(
+                (parsed.scheme, parsed.netloc, _dir_path, "", "", "")
+            ).rstrip("/")
+        else:
+            self.scan_root = self.base_url  # no filename — use as-is
+ 
     def detect_stack(self) -> dict:
         """
         Detect the application stack from HTTP response headers and URL patterns.
@@ -95,6 +108,15 @@ class HttpScanner:
  
         except Exception:
             pass
+ 
+        # URL-based PHP detection — runs even when connection fails
+        # so detect_stack() is useful even on unreachable targets
+        if not result["is_php"] and ".php" in self.raw_url.lower():
+            result["language"] = "php"
+            result["is_php"]   = True
+            if result["is_shared_hosting"] is False and result["webserver"] in ("apache", "unknown"):
+                result["is_shared_hosting"] = True
+ 
         return result
  
  
@@ -138,3 +160,4 @@ class HttpScanner:
             allow_redirects=True,
         )
         return response
+   
