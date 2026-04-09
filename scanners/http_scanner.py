@@ -28,6 +28,18 @@ class HttpScanner:
         self.raw_url     = base_url   # preserve original for display
         self.timeout     = timeout
         self.session     = requests.Session()
+        # Use a realistic browser User-Agent.
+        # Many shared hosting servers and WAFs (mod_security, Cloudflare)
+        # silently drop requests with the default python-requests UA string.
+        self.session.headers.update({
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-GB,en;q=0.5",
+        })
         self.scan_result = scan_result
  
         # scan_root: base used for path construction in checks.
@@ -160,4 +172,4 @@ class HttpScanner:
             allow_redirects=True,
         )
         return response
-   
+  
