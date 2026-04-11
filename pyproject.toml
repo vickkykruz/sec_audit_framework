@@ -31,20 +31,23 @@ classifiers = [
 dependencies = [
     "requests>=2.31.0",
     "urllib3>=1.26.0,<3.0",
-    "docker==7.0.0",
-    "paramiko==3.4.0",
-    "PyYAML==6.0.1",
-    "reportlab==4.2.2",
-    "anthropic>=0.50.0",
+    "docker>=7.0.0",
+    "paramiko>=2.11.0",
+    "PyYAML>=6.0.0",
+    "reportlab>=4.0.0",
     "python-dotenv>=1.0.0",
     "nginxparser-eb>=0.0.9",
 ]
  
 [project.optional-dependencies]
+llm = [
+    "anthropic>=0.50.0",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.11.0",
+    "anthropic>=0.50.0",
 ]
  
 [project.scripts]
@@ -79,3 +82,4 @@ omit = ["tests/*", "*/migrations/*"]
 show_missing = true
 skip_covered = false
 fail_under = 70
+ 
