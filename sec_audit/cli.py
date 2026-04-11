@@ -803,11 +803,11 @@ def run_from_args(args: SimpleNamespace) -> None:
  
             for r in fix_results:
                 if dry_run:
-                    icon = {"would_fix": "\U0001f527", "skipped": "\u23ed\ufe0f",
-                            "not_automatable": "\U0001f4cb", "failed": "\u274c"}.get(r.status, "?")
+                    icon = {"would_fix": "🔧", "skipped": "⏭️",
+                            "not_automatable": "📋", "failed": "❌"}.get(r.status, "🔧")
                 else:
-                    icon = {"fixed": "\u2705", "failed": "\u274c", "skipped": "\u23ed\ufe0f",
-                            "not_automatable": "\U0001f4cb"}.get(r.status, "?")
+                    icon = {"fixed": "✅", "failed": "❌", "skipped": "⏭️",
+                            "not_automatable": "📋", "would_fix": "🔧"}.get(r.status, "❓")
  
                 layer_label = r.layer.upper() if hasattr(r, "layer") else "?"
                 print(f"  {icon} [{layer_label:<8}] {r.check_id:<25} {r.message}")

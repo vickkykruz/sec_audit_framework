@@ -400,7 +400,9 @@ class AutoFixer:
             results.append(result)
             # In dry-run mode, cli.py prints the full formatted plan — suppress
             # the per-item verbose output here to avoid printing everything twice.
-            if self.verbose and not self.dry_run:
+            # not_automatable items are also excluded — they are always shown in
+            # the cli.py results table, so printing them here too is redundant.
+            if self.verbose and not self.dry_run and result.status != "not_automatable":
                 icon = {
                     "fixed":           "✅",
                     "failed":          "❌",
